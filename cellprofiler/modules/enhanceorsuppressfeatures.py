@@ -365,9 +365,7 @@ Two methods can be used to enhance neurites:
             if self.enhance_method == E_SPECKLES:
                 result = self.enhance_speckles(image, radius, self.speckle_accuracy.value)
             elif self.enhance_method == E_NEURITES:
-                result = skimage.exposure.rescale_intensity(
-                    self.enhance_neurites(image, radius, self.neurite_choice.value)
-                )
+                result = self.enhance_neurites(image, radius, self.neurite_choice.value)
             elif self.enhance_method == E_DARK_HOLES:
                 min_radius = max(1, int(self.hole_size.min / 2))
 
