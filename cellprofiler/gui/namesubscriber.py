@@ -2,6 +2,8 @@
 """namesubscriber.py - implements a combobox with extra information
 """
 
+import platform
+
 import wx
 
 
@@ -67,7 +69,7 @@ class NameSubscriberComboBox(wx.Panel):
         self.update_annotation()
 
         sizer.AddStretchSpacer()
-        sizer.Add(self.combo_dlg, flag=wx.ALL | wx.EXPAND | wx.ALIGN_CENTER, border=3)
+        sizer.Add(self.combo_dlg, flag=wx.ALL | wx.EXPAND, border=3)
         sizer.Add((5, 5))
         sizer.Add(self.annotation_dlg, flag=wx.ALIGN_CENTER)
         sizer.AddStretchSpacer()
@@ -116,9 +118,16 @@ class NameSubscriberComboBox(wx.Panel):
         def fn_key(x):
             return x[2], x
 
+        def on_selection(event):
+            self.Value = index[event.Id]
+            self.choice_made(event)
+
         choices_sorted_by_num = sorted(self.orig_choices, key=fn_key)
-        for name, annotation, num, is_input_module, choiceid in choices_sorted_by_num:
-            all_menu.Append(choiceid, "filler")
+        index = {}
+        for idx, choice in enumerate(choices_sorted_by_num):
+            choices_sorted_by_num[idx] = choice + (idx,)
+            all_menu.Append(idx, "filler")
+            index[idx] = choice[0]
 
         align_twosided_items(
             self.combo_dlg,
@@ -151,6 +160,7 @@ class NameSubscriberComboBox(wx.Panel):
                 for (num, annotation, is_input_module), v in sorted_submenus
             ],
         )
+        menu.Bind(wx.EVT_MENU, on_selection)
         self.PopupMenu(menu)
         menu.Destroy()
 
@@ -177,3 +187,159 @@ class NameSubscriberComboBox(wx.Panel):
         self.Refresh()
 
     Value = property(GetValue, SetValue)
+
+
+class NameSubscriberListBox(wx.Panel):
+    """A list of checkboxes with extra annotation, and a context menu.
+
+    Designed as an alternative to NameSubscriberCombobox which simplifies selection of
+    multiple items.
+    """
+
+    def __init__(self, annotation, choices=None, checked=[], name="", nametype="Image"):
+        wx.Panel.__init__(self, annotation, name=name)
+        self.choices = choices
+        if self.choices is None:
+            self.choices = []
+        if platform.system() == "darwin":
+            self.text_width = 50
+        else:
+            self.text_width = 90
+        self.checked = checked
+        self.choice_names = self.get_choice_names()
+        self.nametype = nametype
+        self.list_dlg = wx.CheckListBox(self, style=wx.LB_NEEDED_SB | wx.LB_HSCROLL)
+        self.list_dlg.SetMinSize((350, 125))
+        self.SetItems(self.choices)
+        self.SetChecked(self.checked)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self.list_dlg, 0, flag=wx.ALL | wx.EXPAND, border=3)
+        self.SetSizer(sizer)
+        self.callbacks = []
+        self.list_dlg.Bind(wx.EVT_CHECKLISTBOX, self.choice_made)
+        self.list_dlg.Bind(wx.EVT_CONTEXT_MENU, self.right_menu)
+        self.list_dlg.Bind(wx.EVT_LISTBOX, self.item_selected)
+
+    def add_callback(self, cb):
+        self.callbacks.append(cb)
+
+    def right_menu(self, evt):
+        menu = wx.Menu()
+        sel_all = wx.MenuItem(menu, wx.NewId(), "Select All")
+        sel_none = wx.MenuItem(menu, wx.NewId(), "Select None")
+        force_refresh = wx.MenuItem(menu, wx.NewId(), "Refresh List")
+        menu.Append(sel_all)
+        menu.Append(sel_none)
+        menu.Append(force_refresh)
+        menu.Bind(wx.EVT_MENU, self.select_all, sel_all)
+        menu.Bind(wx.EVT_MENU, self.select_none, sel_none)
+        menu.Bind(wx.EVT_MENU, self.force_refresh, force_refresh)
+        self.PopupMenu(menu)
+        menu.Destroy()
+
+    def select_all(self, evt):
+        self.SetChecked(self.choice_names)
+        self.checked = self.GetChecked()
+        for cb in self.callbacks:
+            cb(evt)
+
+    def select_none(self, evt):
+        self.SetChecked([])
+        self.checked = self.GetChecked()
+        for cb in self.callbacks:
+            cb(evt)
+
+    def force_refresh(self, evt):
+        evt.refresh_now = True
+        for cb in self.callbacks:
+            cb(evt)
+
+    def item_selected(self, evt):
+        selected = self.choice_names[evt.Selection]
+        if self.list_dlg.IsChecked(evt.Selection):
+            self.checked.remove(selected)
+        else:
+            self.checked.append(selected)
+        self.SetChecked(self.checked)
+        self.checked = self.GetChecked()
+        for cb in self.callbacks:
+            cb(evt)
+        self.list_dlg.Deselect(evt.Selection)
+
+    def choice_made(self, evt):
+        # Prevent selection of duplicate entires, marked with "Duplicate ___ Name!"
+        if self.list_dlg.GetItems()[evt.Selection].endswith("Name!)"):
+            if self.list_dlg.IsChecked(evt.Selection):
+                self.list_dlg.Check(evt.Selection, False)
+            return
+        for cb in self.callbacks:
+            cb(evt)
+        self.Refresh()
+        self.checked = self.GetChecked()
+
+    def get_choice_labels(self):
+        choice_labels = []
+        for choice in self.choices:
+            name, module_name, module_num, is_input_module = choice[:4]
+            if module_name:
+                if is_input_module:
+                    end = "(from %s)" % module_name
+                else:
+                    end = "(from %s #%02d)" % (module_name, module_num)
+            else:
+                end = "(%s Missing!)" % self.nametype
+            whitespace = " " * max(10, (self.text_width - len(name) - len(end)))
+            choice_label = "".join((name, whitespace, end))
+            if choice_label in choice_labels:
+                # Name is duplicated
+                end = "(Duplicate %s Name!)" % self.nametype
+                whitespace = " " * max(10, (self.text_width - len(name) - len(end)))
+                choice_label = "".join((name, whitespace, end))
+            choice_labels.append(choice_label)
+        return choice_labels
+
+    def get_choice_names(self):
+        choice_names = [choice[0] for choice in self.choices]
+        if self.checked != "None":
+            for item in self.checked:
+                if item not in choice_names:
+                    choice_names.insert(0, item)
+                    self.choices.insert(0, (item, None, 0, True))
+        return choice_names
+
+    def GetItems(self):
+        return self.list_dlg.GetItems()
+
+    def SetItems(self, choices):
+        self.choices = choices
+        self.choice_names = self.get_choice_names()
+        self.list_dlg.SetItems(self.get_choice_labels())
+        labels = self.get_choice_labels()
+        for i in range(len(self.choices)):
+            if self.choices[i][1] is None:
+                # Tag missing items
+                self.list_dlg.SetItemBackgroundColour(i, "pink")
+            elif labels[i].endswith("Name!)"):
+                # Tag duplicated items
+                self.list_dlg.SetItemForegroundColour(i, "grey")
+        # on Mac, changing the items clears the current selection
+        self.SetChecked(self.checked)
+        self.Refresh()
+
+    Items = property(GetItems, SetItems)
+
+    def GetChecked(self):
+        checked_indexes = self.list_dlg.GetCheckedItems()
+        named_items = [self.choice_names[i] for i in checked_indexes]
+        return named_items
+
+    def SetChecked(self, values):
+        if values != "None":
+            selections = [self.choice_names.index(i) for i in values]
+            # Filter out invalid duplicate entries
+            labels = self.list_dlg.GetItems()
+            selections = [i for i in selections if not labels[i].endswith("Name!)")]
+            self.list_dlg.SetCheckedItems(selections)
+        self.Refresh()
+
+    Checked = property(GetChecked, SetChecked)

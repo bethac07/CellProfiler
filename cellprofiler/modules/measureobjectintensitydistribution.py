@@ -1,5 +1,3 @@
-# coding=utf-8
-
 import centrosome.cpmorphology
 import centrosome.propagate
 import centrosome.zernike
@@ -8,15 +6,31 @@ import numpy
 import numpy.ma
 import scipy.ndimage
 import scipy.sparse
+from cellprofiler_core.constants.measurement import COLTYPE_FLOAT
+from cellprofiler_core.image import Image
+from cellprofiler_core.module import Module
+from cellprofiler_core.preferences import get_default_colormap
+from cellprofiler_core.setting import (
+    HiddenCount,
+    Divider,
+    SettingsGroup,
+    Binary,
+    ValidationError,
+)
+from cellprofiler_core.setting.choice import Choice, Colormap
+from cellprofiler_core.setting.do_something import DoSomething, RemoveSettingButton
+from cellprofiler_core.setting.subscriber import (
+    LabelSubscriber,
+    ImageListSubscriber,
+    ImageSubscriber,
+)
+from cellprofiler_core.setting.text import Integer, ImageName
+from cellprofiler_core.utilities.core.object import (
+    crop_labels_and_image,
+    size_similarly,
+)
 
 import cellprofiler.gui.help.content
-import cellprofiler_core.image
-import cellprofiler_core.measurement
-import cellprofiler_core.module
-import cellprofiler_core.object
-import cellprofiler_core.preferences
-import cellprofiler_core.setting
-import cellprofiler_core.workspace
 
 MeasureObjectIntensityDistribution_Magnitude_Phase = cellprofiler.gui.help.content.image_resource(
     "MeasureObjectIntensityDistribution_Magnitude_Phase.png"
@@ -153,13 +167,17 @@ MEASUREMENT_ALIASES = {
 }
 
 
-class MeasureObjectIntensityDistribution(cellprofiler_core.module.Module):
+class MeasureObjectIntensityDistribution(Module):
     module_name = "MeasureObjectIntensityDistribution"
     category = "Measurement"
-    variable_revision_number = 5
+    variable_revision_number = 6
 
     def create_settings(self):
-        self.images = []
+        self.images_list = ImageListSubscriber(
+            "Select images to measure",
+            [],
+            doc="""Select the images whose intensity distribution you want to measure.""",
+        )
 
         self.objects = []
 
@@ -167,15 +185,13 @@ class MeasureObjectIntensityDistribution(cellprofiler_core.module.Module):
 
         self.heatmaps = []
 
-        self.image_count = cellprofiler_core.setting.HiddenCount(self.images)
+        self.object_count = HiddenCount(self.objects)
 
-        self.object_count = cellprofiler_core.setting.HiddenCount(self.objects)
+        self.bin_counts_count = HiddenCount(self.bin_counts)
 
-        self.bin_counts_count = cellprofiler_core.setting.HiddenCount(self.bin_counts)
+        self.heatmap_count = HiddenCount(self.heatmaps)
 
-        self.heatmap_count = cellprofiler_core.setting.HiddenCount(self.heatmaps)
-
-        self.wants_zernikes = cellprofiler_core.setting.Choice(
+        self.wants_zernikes = Choice(
             "Calculate intensity Zernikes?",
             Z_ALL,
             doc="""\
@@ -201,7 +217,7 @@ useful information for classifying phenotypes.
             ),
         )
 
-        self.zernike_degree = cellprofiler_core.setting.Integer(
+        self.zernike_degree = Integer(
             "Maximum zernike moment",
             value=9,
             minval=1,
@@ -221,25 +237,19 @@ moment, so higher values are increasingly expensive to calculate.
             ),
         )
 
-        self.add_image_button = cellprofiler_core.setting.DoSomething(
-            "", "Add another image", self.add_image
-        )
+        self.spacer_1 = Divider()
 
-        self.spacer_1 = cellprofiler_core.setting.Divider()
+        self.add_object_button = DoSomething("", "Add another object", self.add_object)
 
-        self.add_object_button = cellprofiler_core.setting.DoSomething(
-            "", "Add another object", self.add_object
-        )
+        self.spacer_2 = Divider()
 
-        self.spacer_2 = cellprofiler_core.setting.Divider()
-
-        self.add_bin_count_button = cellprofiler_core.setting.DoSomething(
+        self.add_bin_count_button = DoSomething(
             "", "Add another set of bins", self.add_bin_count
         )
 
-        self.spacer_3 = cellprofiler_core.setting.Divider()
+        self.spacer_3 = Divider()
 
-        self.add_heatmap_button = cellprofiler_core.setting.DoSomething(
+        self.add_heatmap_button = DoSomething(
             "",
             "Add another heatmap display",
             self.add_heatmap,
@@ -250,46 +260,19 @@ heatmap according to the measurement value for that band.
 """,
         )
 
-        self.add_image(can_remove=False)
-
         self.add_object(can_remove=False)
 
         self.add_bin_count(can_remove=False)
 
-    def add_image(self, can_remove=True):
-        group = cellprofiler_core.setting.SettingsGroup()
-
-        if can_remove:
-            group.append("divider", cellprofiler_core.setting.Divider(line=False))
-
-        group.append(
-            "image_name",
-            cellprofiler_core.setting.ImageNameSubscriber(
-                "Select an image to measure",
-                "None",
-                doc="Select the image whose intensity distribution you want to measure.",
-            ),
-        )
-
-        if can_remove:
-            group.append(
-                "remover",
-                cellprofiler_core.setting.RemoveSettingButton(
-                    "", "Remove this image", self.images, group
-                ),
-            )
-
-        self.images.append(group)
-
     def add_object(self, can_remove=True):
-        group = cellprofiler_core.setting.SettingsGroup()
+        group = SettingsGroup()
 
         if can_remove:
-            group.append("divider", cellprofiler_core.setting.Divider(line=False))
+            group.append("divider", Divider(line=False))
 
         group.append(
             "object_name",
-            cellprofiler_core.setting.ObjectNameSubscriber(
+            LabelSubscriber(
                 "Select objects to measure",
                 "None",
                 doc="Select the objects whose intensity distribution you want to measure.",
@@ -298,7 +281,7 @@ heatmap according to the measurement value for that band.
 
         group.append(
             "center_choice",
-            cellprofiler_core.setting.Choice(
+            Choice(
                 "Object to use as center?",
                 C_ALL,
                 doc="""\
@@ -334,7 +317,7 @@ previously identified Nuclei objects as the centers
 
         group.append(
             "center_object_name",
-            cellprofiler_core.setting.ObjectNameSubscriber(
+            LabelSubscriber(
                 "Select objects to use as centers",
                 "None",
                 doc="""\
@@ -352,22 +335,20 @@ object centers).
         if can_remove:
             group.append(
                 "remover",
-                cellprofiler_core.setting.RemoveSettingButton(
-                    "", "Remove this object", self.objects, group
-                ),
+                RemoveSettingButton("", "Remove this object", self.objects, group),
             )
 
         self.objects.append(group)
 
     def add_bin_count(self, can_remove=True):
-        group = cellprofiler_core.setting.SettingsGroup()
+        group = SettingsGroup()
 
         if can_remove:
-            group.append("divider", cellprofiler_core.setting.Divider(line=False))
+            group.append("divider", Divider(line=False))
 
         group.append(
             "wants_scaled",
-            cellprofiler_core.setting.Binary(
+            Binary(
                 "Scale the bins?",
                 True,
                 doc="""\
@@ -387,7 +368,7 @@ taken without knowing the maximum object radius before the run starts.
 
         group.append(
             "bin_count",
-            cellprofiler_core.setting.Integer(
+            Integer(
                 "Number of bins",
                 4,
                 2,
@@ -404,7 +385,7 @@ another set of bins* button.""",
 
         group.append(
             "maximum_radius",
-            cellprofiler_core.setting.Integer(
+            Integer(
                 "Maximum radius",
                 100,
                 minval=1,
@@ -422,7 +403,7 @@ in pixels.
         if can_remove:
             group.append(
                 "remover",
-                cellprofiler_core.setting.RemoveSettingButton(
+                RemoveSettingButton(
                     "", "Remove this set of bins", self.bin_counts, group
                 ),
             )
@@ -438,10 +419,10 @@ in pixels.
         return choices
 
     def add_heatmap(self):
-        group = cellprofiler_core.setting.SettingsGroup()
+        group = SettingsGroup()
 
         if len(self.heatmaps) > 0:
-            group.append("divider", cellprofiler_core.setting.Divider(line=False))
+            group.append("divider", Divider(line=False))
 
         group.append(
             "image_name",
@@ -470,7 +451,7 @@ objects chosen in "Select objects to measure".""",
 
         group.append(
             "bin_count",
-            cellprofiler_core.setting.Choice(
+            Choice(
                 "Number of bins",
                 self.get_bin_count_choices(),
                 choices_fn=self.get_bin_count_choices,
@@ -487,15 +468,16 @@ objects chosen in "Select objects to measure".""",
 
         group.append(
             "measurement",
-            cellprofiler_core.setting.Choice(
+            Choice(
                 "Measurement", MEASUREMENT_CHOICES, doc="The measurement to display."
             ),
         )
 
         group.append(
             "colormap",
-            cellprofiler_core.setting.Colormap(
+            Colormap(
                 "Color map",
+                value="Blues",
                 doc="""\
 The color map setting chooses the color palette that will be
 used to render the different values for your measurement. If you
@@ -506,7 +488,7 @@ actual image measurement.""",
 
         group.append(
             "wants_to_save_display",
-            cellprofiler_core.setting.Binary(
+            Binary(
                 "Save display as image?",
                 False,
                 doc="""\
@@ -521,7 +503,7 @@ display or *{NO}* if the display is not needed.
 
         group.append(
             "display_name",
-            cellprofiler_core.setting.ImageNameProvider(
+            ImageName(
                 "Output image name",
                 "Heatmap",
                 doc="""\
@@ -537,7 +519,7 @@ be selected in a later **SaveImages** or other module.
 
         group.append(
             "remover",
-            cellprofiler_core.setting.RemoveSettingButton(
+            RemoveSettingButton(
                 "", "Remove this heatmap display", self.heatmaps, group
             ),
         )
@@ -546,41 +528,36 @@ be selected in a later **SaveImages** or other module.
 
     def validate_module(self, pipeline):
         images = set()
-
-        for group in self.images:
-            if group.image_name.value in images:
-                raise cellprofiler_core.setting.ValidationError(
-                    "{} has already been selected".format(group.image_name.value),
-                    group.image_name,
+        if len(self.images_list.value) == 0:
+            raise ValidationError("No images selected", self.images_list)
+        for image_name in self.images_list.value:
+            if image_name in images:
+                raise ValidationError(
+                    "%s has already been selected" % image_name, image_name
                 )
-
-            images.add(group.image_name.value)
+            images.add(image_name)
 
         objects = set()
-
         for group in self.objects:
             if group.object_name.value in objects:
-                raise cellprofiler_core.setting.ValidationError(
+                raise ValidationError(
                     "{} has already been selected".format(group.object_name.value),
                     group.object_name,
                 )
-
             objects.add(group.object_name.value)
 
         bins = set()
-
         for group in self.bin_counts:
             if group.bin_count.value in bins:
-                raise cellprofiler_core.setting.ValidationError(
+                raise ValidationError(
                     "{} has already been selected".format(group.bin_count.value),
                     group.bin_count,
                 )
-
             bins.add(group.bin_count.value)
 
     def settings(self):
         result = [
-            self.image_count,
+            self.images_list,
             self.object_count,
             self.bin_counts_count,
             self.heatmap_count,
@@ -588,7 +565,7 @@ be selected in a later **SaveImages** or other module.
             self.zernike_degree,
         ]
 
-        for x in (self.images, self.objects, self.bin_counts, self.heatmaps):
+        for x in (self.objects, self.bin_counts, self.heatmaps):
             for settings in x:
                 temp = settings.pipeline_settings()
                 result += temp
@@ -601,10 +578,7 @@ be selected in a later **SaveImages** or other module.
         if self.wants_zernikes != Z_NONE:
             result.append(self.zernike_degree)
 
-        for settings in self.images:
-            result += settings.visible_settings()
-
-        result += [self.add_image_button, self.spacer_1]
+        result += [self.images_list, self.spacer_1]
 
         for settings in self.objects:
             temp = settings.visible_settings()
@@ -656,12 +630,11 @@ be selected in a later **SaveImages** or other module.
         return result
 
     def prepare_settings(self, setting_values):
-        image_count, objects_count, bin_counts_count, heatmap_count = [
-            int(x) for x in setting_values[:4]
+        objects_count, bin_counts_count, heatmap_count = [
+            int(x) for x in setting_values[1:4]
         ]
 
         for sequence, add_fn, count in (
-            (self.images, self.add_image, image_count),
             (self.objects, self.add_object, objects_count),
             (self.bin_counts, self.add_bin_count, bin_counts_count),
             (self.heatmaps, self.add_heatmap, heatmap_count),
@@ -687,12 +660,12 @@ be selected in a later **SaveImages** or other module.
 
         d = {}
 
-        for image in self.images:
+        for image in self.images_list.value:
             for o in self.objects:
                 for bin_count_settings in self.bin_counts:
                     stats += self.do_measurements(
                         workspace,
-                        image.image_name.value,
+                        image,
                         o.object_name.value,
                         o.center_object_name.value
                         if o.center_choice != C_SELF
@@ -731,7 +704,7 @@ be selected in a later **SaveImages** or other module.
                         output_pixels = heatmap_img
                     else:
                         if colormap == "Default":
-                            colormap = cellprofiler_core.preferences.get_default_colormap()
+                            colormap = get_default_colormap()
 
                         cm = matplotlib.cm.ScalarMappable(cmap=colormap)
 
@@ -743,9 +716,7 @@ be selected in a later **SaveImages** or other module.
                         heatmap.image_name.get_image_name()
                     )
 
-                    output_img = cellprofiler_core.image.Image(
-                        output_pixels, parent_image=parent_image
-                    )
+                    output_img = Image(output_pixels, parent_image=parent_image)
 
                     img_name = heatmap.display_name.value
 
@@ -795,7 +766,7 @@ be selected in a later **SaveImages** or other module.
                 colormap = heatmap.colormap.value
 
                 if colormap == "Default":
-                    colormap = cellprofiler_core.preferences.get_default_colormap()
+                    colormap = get_default_colormap()
 
                 if sharexy is None:
                     sharexy = figure.subplot_imshow(
@@ -807,7 +778,7 @@ be selected in a later **SaveImages** or other module.
                         normalize=False,
                         vmin=numpy.min(heatmap_img),
                         vmax=numpy.max(heatmap_img),
-                        colorbar=True,
+                        colorbar=False,
                     )
                 else:
                     figure.subplot_imshow(
@@ -816,7 +787,7 @@ be selected in a later **SaveImages** or other module.
                         heatmap_img,
                         title=title,
                         colormap=colormap,
-                        colorbar=True,
+                        colorbar=False,
                         normalize=False,
                         vmin=numpy.min(heatmap_img),
                         vmax=numpy.max(heatmap_img),
@@ -860,9 +831,7 @@ be selected in a later **SaveImages** or other module.
 
         objects = workspace.object_set.get_objects(object_name)
 
-        labels, pixel_data = cellprofiler_core.object.crop_labels_and_image(
-            objects.segmented, image.pixel_data
-        )
+        labels, pixel_data = crop_labels_and_image(objects.segmented, image.pixel_data)
 
         nobjects = numpy.max(objects.segmented)
 
@@ -925,9 +894,7 @@ be selected in a later **SaveImages** or other module.
                 #
                 center_objects = workspace.object_set.get_objects(center_object_name)
 
-                center_labels, cmask = cellprofiler_core.object.size_similarly(
-                    labels, center_objects.segmented
-                )
+                center_labels, cmask = size_similarly(labels, center_objects.segmented)
 
                 pixel_counts = centrosome.cpmorphology.fixup_scipy_ndimage_result(
                     scipy.ndimage.sum(
@@ -1245,9 +1212,7 @@ be selected in a later **SaveImages** or other module.
                 yx[:, 1], yx[:, 0], zernike_indexes
             )
 
-            for image_group in self.images:
-                image_name = image_group.image_name.value
-
+            for image_name in self.images_list.value:
                 image = workspace.image_set.get_image(
                     image_name, must_be_grayscale=True
                 )
@@ -1328,9 +1293,7 @@ be selected in a later **SaveImages** or other module.
     def get_measurement_columns(self, pipeline):
         columns = []
 
-        for image in self.images:
-            image_name = image.image_name.value
-
+        for image_name in self.images_list.value:
             for o in self.objects:
                 object_name = o.object_name.value
 
@@ -1349,17 +1312,13 @@ be selected in a later **SaveImages** or other module.
                                 (
                                     object_name,
                                     feature % (image_name, bin, bin_count),
-                                    cellprofiler_core.measurement.COLTYPE_FLOAT,
+                                    COLTYPE_FLOAT,
                                 )
                             )
 
                         if not wants_scaling:
                             columns.append(
-                                (
-                                    object_name,
-                                    ofeature % image.image_name.value,
-                                    cellprofiler_core.measurement.COLTYPE_FLOAT,
-                                )
+                                (object_name, ofeature % image_name, COLTYPE_FLOAT,)
                             )
 
                     if self.wants_zernikes != Z_NONE:
@@ -1376,13 +1335,7 @@ be selected in a later **SaveImages** or other module.
                             ):
                                 ftr = name_fn(image_name, n, m)
 
-                                columns.append(
-                                    (
-                                        object_name,
-                                        ftr,
-                                        cellprofiler_core.measurement.COLTYPE_FLOAT,
-                                    )
-                                )
+                                columns.append((object_name, ftr, COLTYPE_FLOAT,))
 
         return columns
 
@@ -1406,8 +1359,7 @@ be selected in a later **SaveImages** or other module.
 
     def get_measurement_images(self, pipeline, object_name, category, feature):
         if feature in self.get_measurements(pipeline, object_name, category):
-            return [image.image_name.value for image in self.images]
-
+            return self.images_list.value
         return []
 
     def get_measurement_scales(
@@ -1439,9 +1391,7 @@ be selected in a later **SaveImages** or other module.
 
         return []
 
-    def upgrade_settings(
-        self, setting_values, variable_revision_number, module_name
-    ):
+    def upgrade_settings(self, setting_values, variable_revision_number, module_name):
         if variable_revision_number == 1:
             n_images, n_objects, n_bins = [
                 int(setting) for setting in setting_values[:3]
@@ -1497,27 +1447,38 @@ be selected in a later **SaveImages** or other module.
 
             variable_revision_number = 5
 
+        if variable_revision_number == 5:
+            n_images = int(setting_values[0])
+            mid = setting_values[1:6]
+            end = setting_values[6 + n_images :]
+
+            images_set = set(setting_values[6 : 6 + n_images])
+            if "None" in images_set:
+                images_set.remove("None")
+            images_string = ", ".join(map(str, images_set))
+
+            setting_values = [images_string] + mid + end
+
+            variable_revision_number = 6
+
         return setting_values, variable_revision_number
 
 
-class MORDObjectNameSubscriber(cellprofiler_core.setting.ObjectNameSubscriber):
+class MORDObjectNameSubscriber(LabelSubscriber):
     """An object name subscriber limited by the objects in the objects' group"""
 
     def set_module(self, module):
         assert isinstance(module, MeasureObjectIntensityDistribution)
-
         self.__module = module
 
     def __is_valid_choice(self, choice_tuple):
         for object_group in self.__module.objects:
             if choice_tuple[0] == object_group.object_name:
                 return True
-
         return False
 
     def get_choices(self, pipeline):
         super_choices = super(self.__class__, self).get_choices(pipeline)
-
         return list(filter(self.__is_valid_choice, super_choices))
 
     def is_visible(self):
@@ -1528,23 +1489,20 @@ class MORDObjectNameSubscriber(cellprofiler_core.setting.ObjectNameSubscriber):
         """Return the name of the objects to use in the display"""
         if len(self.__module.objects) == 1:
             return self.__module.objects[0].object_name.value
-
         return self.value
 
 
-class MORDImageNameSubscriber(cellprofiler_core.setting.ImageNameSubscriber):
+class MORDImageNameSubscriber(ImageSubscriber):
     """An image name subscriber limited by the images in the image group"""
 
     def set_module(self, module):
         assert isinstance(module, MeasureObjectIntensityDistribution)
-
         self.__module = module
 
     def __is_valid_choice(self, choice_tuple):
-        for image_group in self.__module.images:
-            if choice_tuple[0] == image_group.image_name:
+        for image_name in self.__module.images_list.value:
+            if choice_tuple[0] == image_name:
                 return True
-
         return False
 
     def get_choices(self, pipeline):
@@ -1554,11 +1512,10 @@ class MORDImageNameSubscriber(cellprofiler_core.setting.ImageNameSubscriber):
 
     def is_visible(self):
         """Return True if a choice should be displayed"""
-        return len(self.__module.images) > 1
+        return len(self.__module.images_list.value) > 1
 
     def get_image_name(self):
         """Return the name of the image to use in the display"""
-        if len(self.__module.images) == 1:
-            return self.__module.images[0].image_name.value
-
+        if len(self.__module.images_list.value) == 1:
+            return self.__module.images_list.value[0]
         return self.value

@@ -1,39 +1,45 @@
 # coding=utf-8
 
-import logging
 import platform
+import sys
 
-import raven
-import raven.conf
-import raven.handlers.logging
-import raven.transport.threaded_requests
+import sentry_sdk
 import wx
 import wx.lib.inspection
+from cellprofiler_core.preferences import get_telemetry_prompt
+from cellprofiler_core.preferences import get_telemetry
+from cellprofiler_core.preferences import set_telemetry
+from cellprofiler_core.preferences import set_telemetry_prompt
+from cellprofiler_core.utilities.java import start_java
+from cellprofiler_core.utilities.java import stop_java
 
-import cellprofiler.gui.dialog
-import cellprofiler_core.preferences
-import cellprofiler_core.utilities.java
+from .dialog import Telemetry
 
-logger = logging.getLogger(__name__)
+def init_telemetry():
+    dsn = "https://c0b47db2a1b34f12b33ca8e78067617e:3cee11601374464dadd4b44da8a22dbd@sentry.io/152399"
 
-transport = raven.transport.threaded_requests.ThreadedRequestsHTTPTransport
+    from cellprofiler import __version__
+    sentry = sentry_sdk.init(dsn=dsn, release=__version__)
 
-dsn = "https://c0b47db2a1b34f12b33ca8e78067617e:3cee11601374464dadd4b44da8a22dbd@sentry.io/152399"
+    sentry_sdk.set_user(
+        {
+            "architecture": platform.architecture(),
+            "machine": platform.machine(),
+            "node": platform.node(),
+            "processor": platform.processor(),
+            "python_implementation": platform.python_implementation(),
+            "python_version": platform.python_version(),
+            "release": platform.release(),
+            "system": platform.system(),
+            "version": platform.version(),
+        }
+    )
 
-sentry = raven.Client(dsn=dsn, transport=transport, install_sys_hook=False)
+def stop_telemetry():
+    sentry = sentry_sdk.init()
 
-sentry.user_context(
-    {
-        "machine": platform.machine(),
-        "processor": platform.processor(),
-        "python_implementation": platform.python_implementation(),
-        "python_version": platform.python_version(),
-        "release": platform.release(),
-        "system": platform.system(),
-        "version": platform.version(),
-    }
-)
-
+if get_telemetry():
+    init_telemetry()
 
 class App(wx.App):
     def __init__(self, *args, **kwargs):
@@ -45,18 +51,32 @@ class App(wx.App):
 
         self.workspace_path = kwargs.pop("workspace_path", None)
 
-        cellprofiler_core.utilities.java.start_java()
+        start_java()
 
         super(App, self).__init__(*args, **kwargs)
 
     def OnInit(self):
-        import cellprofiler.gui.cpframe
+        if platform.system() == "Windows":
+            import locale
+            # Need to startup wx in English, otherwise C++ can't load images.
+            self.locale = wx.Locale(wx.LANGUAGE_ENGLISH)
+            # Ensure Python uses the same locale as wx
+            try:
+                locale.setlocale(locale.LC_ALL, self.locale.GetName())
+            except:
+                print(f"Python rejected the system locale detected by WX ('{self.locale.GetName()}').\n"
+                      "This shouldn't cause problems, but please let us know if you encounter errors.")
+        from .cpframe import CPFrame
+        from cellprofiler import __version__
+
+        # This import is needed to populate the modules list
+        import cellprofiler_core.modules
 
         # wx.lib.inspection.InspectionTool().Show()
 
-        self.SetAppName("CellProfiler{0:s}".format(cellprofiler.__version__))
+        self.SetAppName("CellProfiler{0:s}".format(__version__))
 
-        self.frame = cellprofiler.gui.cpframe.CPFrame(None, -1, "CellProfiler")
+        self.frame = CPFrame(None, -1, "CellProfiler")
 
         self.frame.start(self.workspace_path, self.pipeline_path)
 
@@ -67,22 +87,24 @@ class App(wx.App):
 
         self.frame.Show()
 
-        if cellprofiler_core.preferences.get_telemetry_prompt():
-            telemetry = cellprofiler.gui.dialog.Telemetry()
+        if hasattr(sys, "frozen"):
+            from cellprofiler.gui.checkupdate import check_update
+            try:
+                check_update(self.frame)
+            except Exception as e:
+                print(f"Failed to check for updates - {e}")
+
+        if get_telemetry_prompt():
+            telemetry = Telemetry()
 
             if telemetry.status == wx.ID_YES:
-                cellprofiler_core.preferences.set_telemetry(True)
+                set_telemetry(True)
+                init_telemetry()
             else:
-                cellprofiler_core.preferences.set_telemetry(False)
+                set_telemetry(False)
+                stop_telemetry()
 
-            cellprofiler_core.preferences.set_telemetry_prompt(False)
-
-        if cellprofiler_core.preferences.get_telemetry():
-            sentry_handler = raven.handlers.logging.SentryHandler(sentry)
-
-            sentry_handler.setLevel(logging.ERROR)
-
-            raven.conf.setup_logging(sentry_handler)
+            set_telemetry_prompt(False)
 
         if self.frame.startup_blurb_frame.IsShownOnScreen():
             self.frame.startup_blurb_frame.Raise()
@@ -90,7 +112,7 @@ class App(wx.App):
         return True
 
     def OnExit(self):
-        cellprofiler_core.utilities.java.stop_java()
+        stop_java()
 
         return 0
 

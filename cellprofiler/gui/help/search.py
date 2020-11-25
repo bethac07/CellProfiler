@@ -3,12 +3,17 @@ import re
 
 import wx
 import wx.html
+from cellprofiler_core.preferences import get_plugin_directory
+from cellprofiler_core.utilities.core.modules import (
+    instantiate_module,
+    get_module_names,
+)
 
 import cellprofiler.gui
 import cellprofiler.gui.help.content
 import cellprofiler.gui.html.utils
+import cellprofiler.gui.utilities.icon
 import cellprofiler.modules
-import cellprofiler_core.preferences
 
 MENU_HELP = {
     "Accessing Images From OMERO": cellprofiler.gui.help.content.read_content(
@@ -24,11 +29,11 @@ MENU_HELP = {
     "Configuring Logging": cellprofiler.gui.help.content.read_content(
         "other_logging.rst"
     ),
+    "Identifying Objects in 3D": cellprofiler.gui.help.content.read_content(
+        "other_3d_identify.rst"
+    ),
     "Introduction to Projects": cellprofiler.gui.help.content.read_content(
         "projects_introduction.rst"
-    ),
-    "Load Modules": cellprofiler.gui.help.content.read_content(
-        "legacy_load_modules.rst"
     ),
     "Loading Image Stacks and Movies": cellprofiler.gui.help.content.read_content(
         "projects_image_sequences.rst"
@@ -41,9 +46,6 @@ MENU_HELP = {
     ),
     "Troubleshooting Memory and Speed Issues": cellprofiler.gui.help.content.read_content(
         "other_troubleshooting.rst"
-    ),
-    "Using the Data Tools Menu": cellprofiler.gui.help.content.read_content(
-        "navigation_data_tools_menu.rst"
     ),
     "Using the Edit Menu": cellprofiler.gui.help.content.read_content(
         "navigation_file_menu.rst"
@@ -63,9 +65,6 @@ MENU_HELP = {
     "Using The Display Window Menu Bar": cellprofiler.gui.help.content.read_content(
         "display_menu_bar.rst"
     ),
-    "Using the Parameter Sampling Menu": cellprofiler.gui.help.content.read_content(
-        "navigation_parameter_sampling_menu.rst"
-    ),
     "Plate Viewer": cellprofiler.gui.help.content.read_content(
         "output_plateviewer.rst"
     ),
@@ -82,9 +81,6 @@ MENU_HELP = {
         "navigation_test_menu.rst"
     ),
     "Using Plugins": cellprofiler.gui.help.content.read_content("other_plugins.rst"),
-    "Setting the Output Filename": cellprofiler.gui.help.content.read_content(
-        "legacy_output_file.rst"
-    ),
     "Why Use CellProfiler?": cellprofiler.gui.help.content.read_content(
         "why_use_cellprofiler.rst"
     ),
@@ -117,7 +113,7 @@ class Search(wx.Frame):
 
         self.Layout()
 
-        self.SetIcon(cellprofiler.gui.get_cp_icon())
+        self.SetIcon(cellprofiler.gui.utilities.icon.get_cp_icon())
 
     def __create_results_view(self):
         html_window = cellprofiler.gui.html.htmlwindow.HtmlClickableWindow(self)
@@ -247,6 +243,16 @@ def __search_fn(html, text):
     ]
 
 
+def quick_search(module, text):
+    mod_doc, mod_settings = module.get_help_text()
+    if text in mod_doc.lower():
+        return True
+    for setting_name, setting_doc in mod_settings:
+        if text in setting_doc.lower():
+            return True
+    return False
+
+
 def search_module_help(text):
     """
     Search the help for a string
@@ -268,24 +274,24 @@ def search_module_help(text):
 
             count += len(matches)
 
-    for module_name in cellprofiler_core.modules.get_module_names():
-        module = cellprofiler_core.modules.instantiate_module(module_name)
+    for module_name in get_module_names():
+        module = instantiate_module(module_name)
 
         location = os.path.split(module.create_settings.__func__.__code__.co_filename)[
             0
         ]
 
-        if location == cellprofiler_core.preferences.get_plugin_directory():
+        if location == get_plugin_directory():
             continue
 
-        help_text = module.get_help()
+        prelim_matches = quick_search(module, text.lower())
+        if prelim_matches:
+            help_text = module.get_help()
+            matches = __search_fn(help_text, text)
 
-        matches = __search_fn(help_text, text)
-
-        if len(matches) > 0:
-            matching_help.append((module_name, help_text, matches))
-
-            count += len(matches)
+            if len(matches) > 0:
+                matching_help.append((module_name, help_text, matches))
+                count += len(matches)
 
     if len(matching_help) == 0:
         return None

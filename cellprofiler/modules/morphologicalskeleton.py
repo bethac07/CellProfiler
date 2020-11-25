@@ -1,10 +1,8 @@
-# coding=utf-8
-
 """
 MorphologicalSkeleton
 =====================
 
-**MorphologicalSkeleton** thins an image into a single-pixel wide skeleton. See `this tutorial`_ for more information.
+**MorphologicalSkeleton** thins an image into a single-pixel wide skeleton. See `this tutorial <https://scikit-image.org/docs/0.14.x/auto_examples/xx_applications/plot_morphology.html#skeletonize>`__ for more information.
 
 |
 
@@ -14,17 +12,14 @@ Supports 2D? Supports 3D? Respects masks?
 YES          YES          NO
 ============ ============ ===============
 
-.. _this tutorial: https://scikit-image.org/docs/0.14.x/auto_examples/xx_applications/plot_morphology.html#skeletonize
-
 """
 
 import skimage.morphology
+from cellprofiler_core.image import Image
+from cellprofiler_core.module import ImageProcessing
 
-import cellprofiler_core.image
-import cellprofiler_core.module
 
-
-class MorphologicalSkeleton(cellprofiler_core.module.ImageProcessing):
+class MorphologicalSkeleton(ImageProcessing):
     category = "Advanced"
 
     module_name = "MorphologicalSkeleton"
@@ -52,9 +47,7 @@ class MorphologicalSkeleton(cellprofiler_core.module.ImageProcessing):
         else:
             y_data = skimage.morphology.skeletonize(x_data)
 
-        y = cellprofiler_core.image.Image(
-            dimensions=dimensions, image=y_data, parent_image=x
-        )
+        y = Image(dimensions=dimensions, image=y_data, parent_image=x)
 
         images.add(y_name, y)
 

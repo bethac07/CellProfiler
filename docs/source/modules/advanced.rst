@@ -4,10 +4,6 @@ Advanced
 --------
 Advanced modules include computer vision algorithms.
 
-.. automodule:: cellprofiler.modules.clearborder
-
-`(Jump to top)`_
-
 .. automodule:: cellprofiler.modules.closing
 
 `(Jump to top)`_
@@ -20,9 +16,14 @@ Advanced modules include computer vision algorithms.
 
 `(Jump to top)`_
 
-.. automodule:: cellprofiler.modules.erosion
+.. automodule:: cellprofiler.modules.erodeimage
 
 `(Jump to top)`_
+
+.. automodule:: cellprofiler.modules.erodeobjects
+
+`(Jump to top)`_
+
 
 .. automodule:: cellprofiler.modules.fillobjects
 
@@ -32,19 +33,16 @@ Advanced modules include computer vision algorithms.
 
 `(Jump to top)`_
 
-.. automodule:: cellprofiler.modules.label
-
-`(Jump to top)`_
 
 .. automodule:: cellprofiler.modules.matchtemplate
 
 `(Jump to top)`_
 
-.. automodule:: cellprofiler.modules.medianfilter
+.. automodule:: cellprofiler.modules.medialaxis
 
 `(Jump to top)`_
 
-.. automodule:: cellprofiler.modules.medialaxis
+.. automodule:: cellprofiler.modules.medianfilter
 
 `(Jump to top)`_
 
@@ -61,10 +59,6 @@ Advanced modules include computer vision algorithms.
 `(Jump to top)`_
 
 .. automodule:: cellprofiler.modules.removeholes
-
-`(Jump to top)`_
-
-.. automodule:: cellprofiler.modules.removeobjectsbysize
 
 `(Jump to top)`_
 

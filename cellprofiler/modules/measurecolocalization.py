@@ -1,5 +1,3 @@
-# coding=utf-8
-
 """
 MeasureColocalization
 =====================
@@ -24,6 +22,8 @@ between the following:
 -  The nuclei in each of the above image pairs.
 
 A good primer on colocalization theory can be found on the `SVI website`_.
+
+You can find a helpful review on colocalization from Aaron *et al*. `here`_.
 
 |
 
@@ -65,24 +65,42 @@ Measurements made by this module
    G) and Ri_coloc = Ri when Gi > 0, 0 otherwise and Gi_coloc = Gi
    when Ri >0, 0 otherwise. (Singan et al. 2011, BMC Bioinformatics
    12:407).
+
+References
+^^^^^^^^^^
+
+-  Aaron JS, Taylor AB, Chew TL. Image co-localization - co-occurrence versus correlation.
+   J Cell Sci. 2018;131(3):jcs211847. Published 2018 Feb 8. doi:10.1242/jcs.211847
+
+
    
-.. _SVI website: http://svi.nl/ColocalizationTheory   
+.. _SVI website: http://svi.nl/ColocalizationTheory
+.. _here: https://jcs.biologists.org/content/joces/131/3/jcs211847.full.pdf
 """
 
 import numpy
 import scipy.ndimage
 import scipy.stats
+from cellprofiler_core.constants.measurement import COLTYPE_FLOAT
+from cellprofiler_core.module import Module
+from cellprofiler_core.setting import Divider, Binary, ValidationError
+from cellprofiler_core.setting.choice import Choice
+from cellprofiler_core.setting.subscriber import (
+    LabelListSubscriber,
+    ImageListSubscriber,
+)
+from cellprofiler_core.setting.text import Float
+from cellprofiler_core.utilities.core.object import size_similarly
 from centrosome.cpmorphology import fixup_scipy_ndimage_result as fix
 from scipy.linalg import lstsq
-
-import cellprofiler_core.measurement
-import cellprofiler_core.module
-import cellprofiler_core.object
-import cellprofiler_core.setting
 
 M_IMAGES = "Across entire image"
 M_OBJECTS = "Within objects"
 M_IMAGES_AND_OBJECTS = "Both"
+
+M_FAST = "Fast"
+M_FASTER = "Faster"
+M_ACCURATE = "Accurate"
 
 """Feature name format for the correlation measurement"""
 F_CORRELATION_FORMAT = "Correlation_Correlation_%s_%s"
@@ -109,32 +127,45 @@ F_RWC_FORMAT = "Correlation_RWC_%s_%s"
 F_COSTES_FORMAT = "Correlation_Costes_%s_%s"
 
 
-class MeasureColocalization(cellprofiler_core.module.Module):
+class MeasureColocalization(Module):
     module_name = "MeasureColocalization"
     category = "Measurement"
-    variable_revision_number = 3
+    variable_revision_number = 5
 
     def create_settings(self):
         """Create the initial settings for the module"""
-        self.image_groups = []
-        self.add_image(can_delete=False)
-        self.spacer_1 = cellprofiler_core.setting.Divider()
-        self.add_image(can_delete=False)
-        self.image_count = cellprofiler_core.setting.HiddenCount(self.image_groups)
 
-        self.add_image_button = cellprofiler_core.setting.DoSomething(
-            "", "Add another image", self.add_image
+        self.images_list = ImageListSubscriber(
+            "Select images to measure",
+            [],
+            doc="""Select images to measure the correlation/colocalization in.""",
         )
-        self.spacer_2 = cellprofiler_core.setting.Divider()
-        self.thr = cellprofiler_core.setting.Float(
+
+        self.objects_list = LabelListSubscriber(
+            "Select objects to measure",
+            [],
+            doc="""\
+*(Used only when "Within objects" or "Both" are selected)*
+
+Select the objects to be measured.""",
+        )
+
+        self.thr = Float(
             "Set threshold as percentage of maximum intensity for the images",
             15,
             minval=0,
             maxval=99,
-            doc="You may choose to measure colocalization metrics only for those pixels above a certain threshold. Select the threshold as a percentage of the maximum intensity of the above image [0-99].",
+            doc="""\
+You may choose to measure colocalization metrics only for those pixels above 
+a certain threshold. Select the threshold as a percentage of the maximum intensity 
+of the above image [0-99].
+
+This value is used by the Overlap, Manders, and Rank Weighted Colocalization 
+measurements.
+""",
         )
 
-        self.images_or_objects = cellprofiler_core.setting.Choice(
+        self.images_or_objects = Choice(
             "Select where to measure correlation",
             [M_IMAGES, M_OBJECTS, M_IMAGES_AND_OBJECTS],
             doc="""\
@@ -152,16 +183,9 @@ All methods measure correlation on a pixel by pixel basis.
             % globals(),
         )
 
-        self.object_groups = []
-        self.add_object(can_delete=False)
-        self.object_count = cellprofiler_core.setting.HiddenCount(self.object_groups)
+        self.spacer = Divider(line=True)
 
-        self.spacer_2 = cellprofiler_core.setting.Divider(line=True)
-
-        self.add_object_button = cellprofiler_core.setting.DoSomething(
-            "", "Add another object", self.add_object
-        )
-        self.do_all = cellprofiler_core.setting.Binary(
+        self.do_all = Binary(
             "Run all metrics?",
             True,
             doc="""\
@@ -174,7 +198,7 @@ colocalization algorithms to run.
             ),
         )
 
-        self.do_corr_and_slope = cellprofiler_core.setting.Binary(
+        self.do_corr_and_slope = Binary(
             "Calculate correlation and slope metrics?",
             True,
             doc="""\
@@ -184,7 +208,7 @@ Select *{YES}* to run the Pearson correlation and slope metrics.
             ),
         )
 
-        self.do_manders = cellprofiler_core.setting.Binary(
+        self.do_manders = Binary(
             "Calculate the Manders coefficients?",
             True,
             doc="""\
@@ -194,17 +218,17 @@ Select *{YES}* to run the Manders coefficients.
             ),
         )
 
-        self.do_rwc = cellprofiler_core.setting.Binary(
-            "Calculate the Rank Weighted Coloalization coefficients?",
+        self.do_rwc = Binary(
+            "Calculate the Rank Weighted Colocalization coefficients?",
             True,
             doc="""\
-Select *{YES}* to run the Rank Weighted Coloalization coefficients.
+Select *{YES}* to run the Rank Weighted Colocalization coefficients.
 """.format(
                 **{"YES": "Yes"}
             ),
         )
 
-        self.do_overlap = cellprofiler_core.setting.Binary(
+        self.do_overlap = Binary(
             "Calculate the Overlap coefficients?",
             True,
             doc="""\
@@ -214,7 +238,7 @@ Select *{YES}* to run the Overlap coefficients.
             ),
         )
 
-        self.do_costes = cellprofiler_core.setting.Binary(
+        self.do_costes = Binary(
             "Calculate the Manders coefficients using Costes auto threshold?",
             True,
             doc="""\
@@ -224,115 +248,53 @@ Select *{YES}* to run the Manders coefficients using Costes auto threshold.
             ),
         )
 
-    def add_image(self, can_delete=True):
-        """Add an image to the image_groups collection
+        self.fast_costes = Choice(
+            "Method for Costes thresholding",
+            [M_FASTER, M_FAST, M_ACCURATE],
+            doc=f"""\
+This setting determines the method used to calculate the threshold for use within the
+Costes calculations. The *{M_FAST}* and *{M_ACCURATE}* modes will test candidate thresholds
+in descending order until the optimal threshold is reached. Selecting *{M_FAST}* will attempt 
+to skip candidates when results are far from the optimal value being sought. Selecting *{M_ACCURATE}* 
+will test every possible threshold value. When working with 16-bit images these methods can be extremely 
+time-consuming. Selecting *{M_FASTER}* will use a modified bisection algorithm to find the threshold 
+using a shrinking window of candidates. This is substantially faster but may produce slightly lower 
+thresholds in exceptional circumstances.
 
-        can_delete - set this to False to keep from showing the "remove"
-                     button for images that must be present.
-        """
-        group = cellprofiler_core.setting.SettingsGroup()
-        if can_delete:
-            group.append("divider", cellprofiler_core.setting.Divider(line=False))
-        group.append(
-            "image_name",
-            cellprofiler_core.setting.ImageNameSubscriber(
-                "Select an image to measure",
-                "None",
-                doc="Select an image to measure the correlation/colocalization in.",
-            ),
+In the vast majority of instances the results of all strategies should be identical. We recommend using 
+*{M_FAST}* mode when working with 8-bit images and *{M_FASTER}* mode when using 16-bit images.
+
+Alternatively, you may want to disable these specific measurements entirely 
+(available when "*Run All Metrics?*" is set to "*No*").
+"""
         )
-
-        if (
-            len(self.image_groups) == 0
-        ):  # Insert space between 1st two images for aesthetics
-            group.append("extra_divider", cellprofiler_core.setting.Divider(line=False))
-
-        if can_delete:
-            group.append(
-                "remover",
-                cellprofiler_core.setting.RemoveSettingButton(
-                    "", "Remove this image", self.image_groups, group
-                ),
-            )
-
-        self.image_groups.append(group)
-
-    def add_object(self, can_delete=True):
-        """Add an object to the object_groups collection"""
-        group = cellprofiler_core.setting.SettingsGroup()
-        if can_delete:
-            group.append("divider", cellprofiler_core.setting.Divider(line=False))
-
-        group.append(
-            "object_name",
-            cellprofiler_core.setting.ObjectNameSubscriber(
-                "Select an object to measure",
-                "None",
-                doc="""\
-*(Used only when "Within objects" or "Both" are selected)*
-
-Select the objects to be measured.""",
-            ),
-        )
-
-        if can_delete:
-            group.append(
-                "remover",
-                cellprofiler_core.setting.RemoveSettingButton(
-                    "", "Remove this object", self.object_groups, group
-                ),
-            )
-        self.object_groups.append(group)
 
     def settings(self):
         """Return the settings to be saved in the pipeline"""
-        result = [self.image_count, self.object_count]
-        result += [image_group.image_name for image_group in self.image_groups]
-        result += [self.thr]
-        result += [self.images_or_objects]
-        result += [object_group.object_name for object_group in self.object_groups]
-        result += [
+        result = [
+            self.images_list,
+            self.thr,
+            self.images_or_objects,
+            self.objects_list,
             self.do_all,
             self.do_corr_and_slope,
             self.do_manders,
             self.do_rwc,
             self.do_overlap,
             self.do_costes,
+            self.fast_costes,
         ]
         return result
 
-    def prepare_settings(self, setting_values):
-        """Make sure there are the right number of image and object slots for the incoming settings"""
-        image_count = int(setting_values[0])
-        object_count = int(setting_values[1])
-        if image_count < 2:
-            raise ValueError(
-                "The MeasureColocalization module must have at least two input images. %d found in pipeline file"
-                % image_count
-            )
-
-        del self.image_groups[image_count:]
-        while len(self.image_groups) < image_count:
-            self.add_image()
-
-        del self.object_groups[object_count:]
-        while len(self.object_groups) < object_count:
-            self.add_object()
-
     def visible_settings(self):
-        result = []
-        for image_group in self.image_groups:
-            result += image_group.visible_settings()
-        result += [
-            self.add_image_button,
-            self.spacer_2,
+        result = [
+            self.images_list,
+            self.spacer,
             self.thr,
             self.images_or_objects,
         ]
         if self.wants_objects():
-            for object_group in self.object_groups:
-                result += object_group.visible_settings()
-            result += [self.add_object_button]
+            result += [self.objects_list]
         result += [self.do_all]
         if not self.do_all:
             result += [
@@ -342,6 +304,8 @@ Select the objects to be measured.""",
                 self.do_overlap,
                 self.do_costes,
             ]
+        if self.do_all or self.do_costes:
+            result += [self.fast_costes]
         return result
 
     def help_settings(self):
@@ -349,8 +313,8 @@ Select the objects to be measured.""",
         help_settings = [
             self.images_or_objects,
             self.thr,
-            self.image_groups[0].image_name,
-            self.object_groups[0].object_name,
+            self.images_list,
+            self.objects_list,
             self.do_all,
         ]
         return help_settings
@@ -360,11 +324,11 @@ Select the objects to be measured.""",
 
         Yields the pairs of images in a canonical order.
         """
-        for i in range(self.image_count.value - 1):
-            for j in range(i + 1, self.image_count.value):
+        for i in range(len(self.images_list.value) - 1):
+            for j in range(i + 1, len(self.images_list.value)):
                 yield (
-                    self.image_groups[i].image_name.value,
-                    self.image_groups[j].image_name.value,
+                    self.images_list.value[i],
+                    self.images_list.value[j],
                 )
 
     def wants_images(self):
@@ -379,15 +343,15 @@ Select the objects to be measured.""",
         """Calculate measurements on an image set"""
         col_labels = ["First image", "Second image", "Objects", "Measurement", "Value"]
         statistics = []
+        if len(self.images_list.value) < 2:
+            raise ValueError("At least 2 images must be selected for analysis.")
         for first_image_name, second_image_name in self.get_image_pairs():
             if self.wants_images():
                 statistics += self.run_image_pair_images(
                     workspace, first_image_name, second_image_name
                 )
             if self.wants_objects():
-                for object_name in [
-                    group.object_name.value for group in self.object_groups
-                ]:
+                for object_name in self.objects_list.value:
                     statistics += self.run_image_pair_objects(
                         workspace, first_image_name, second_image_name, object_name
                     )
@@ -402,7 +366,9 @@ Select the objects to be measured.""",
         else:
             helptext = None
         figure.set_subplots((1, 1))
-        figure.subplot_table(0, 0, statistics, workspace.display_data.col_labels, title=helptext)
+        figure.subplot_table(
+            0, 0, statistics, workspace.display_data.col_labels, title=helptext
+        )
 
     def run_image_pair_images(self, workspace, first_image_name, second_image_name):
         """Calculate the correlation between the pixels of two images"""
@@ -556,45 +522,18 @@ Select the objects to be measured.""",
 
             if self.do_costes:
                 # Orthogonal Regression for Costes' automated threshold
-                nonZero = (fi > 0) | (si > 0)
-
-                xvar = numpy.var(fi[nonZero], axis=0, ddof=1)
-                yvar = numpy.var(si[nonZero], axis=0, ddof=1)
-
-                xmean = numpy.mean(fi[nonZero], axis=0)
-                ymean = numpy.mean(si[nonZero], axis=0)
-
-                z = fi[nonZero] + si[nonZero]
-                zvar = numpy.var(z, axis=0, ddof=1)
-
-                covar = 0.5 * (zvar - (xvar + yvar))
-
-                denom = 2 * covar
-                num = (yvar - xvar) + numpy.sqrt(
-                    (yvar - xvar) * (yvar - xvar) + 4 * (covar * covar)
-                )
-                a = num / denom
-                b = ymean - a * xmean
-
-                i = 1
-                while i > 0.003921568627:
-                    Thr_fi_c = i
-                    Thr_si_c = (a * i) + b
-                    combt = (fi < Thr_fi_c) | (si < Thr_si_c)
-                    try:
-                        costReg = scipy.stats.pearsonr(fi[combt], si[combt])
-                        if costReg[0] <= 0:
-                            break
-                        i = i - 0.003921568627
-                    except ValueError:
-                        break
+                scale = get_scale(first_image.scale, second_image.scale)
+                if self.fast_costes == M_FASTER:
+                    thr_fi_c, thr_si_c = self.bisection_costes(fi, si, scale)
+                else:
+                    thr_fi_c, thr_si_c = self.linear_costes(fi, si, scale)
 
                 # Costes' thershold calculation
-                combined_thresh_c = (fi > Thr_fi_c) & (si > Thr_si_c)
+                combined_thresh_c = (fi > thr_fi_c) & (si > thr_si_c)
                 fi_thresh_c = fi[combined_thresh_c]
                 si_thresh_c = si[combined_thresh_c]
-                tot_fi_thr_c = fi[(fi > Thr_fi_c)].sum()
-                tot_si_thr_c = si[(si > Thr_si_c)].sum()
+                tot_fi_thr_c = fi[(fi > thr_fi_c)].sum()
+                tot_si_thr_c = si[(si > thr_si_c)].sum()
 
                 # Costes' Automated Threshold
                 C1 = 0
@@ -702,23 +641,15 @@ Select the objects to be measured.""",
             first_pixels = objects.crop_image_similarly(first_image.pixel_data)
             first_mask = objects.crop_image_similarly(first_image.mask)
         except ValueError:
-            first_pixels, m1 = cellprofiler_core.object.size_similarly(
-                labels, first_image.pixel_data
-            )
-            first_mask, m1 = cellprofiler_core.object.size_similarly(
-                labels, first_image.mask
-            )
+            first_pixels, m1 = size_similarly(labels, first_image.pixel_data)
+            first_mask, m1 = size_similarly(labels, first_image.mask)
             first_mask[~m1] = False
         try:
             second_pixels = objects.crop_image_similarly(second_image.pixel_data)
             second_mask = objects.crop_image_similarly(second_image.mask)
         except ValueError:
-            second_pixels, m1 = cellprofiler_core.object.size_similarly(
-                labels, second_image.pixel_data
-            )
-            second_mask, m1 = cellprofiler_core.object.size_similarly(
-                labels, second_image.mask
-            )
+            second_pixels, m1 = size_similarly(labels, second_image.pixel_data)
+            second_mask, m1 = size_similarly(labels, second_image.mask)
             second_mask[~m1] = False
         mask = (labels > 0) & first_mask & second_mask
         first_pixels = first_pixels[mask]
@@ -1109,37 +1040,13 @@ Select the objects to be measured.""",
                 ]
 
             if self.do_costes:
-                nonZero = (fi > 0) | (si > 0)
-                xvar = numpy.var(fi[nonZero], axis=0, ddof=1)
-                yvar = numpy.var(si[nonZero], axis=0, ddof=1)
+                # Orthogonal Regression for Costes' automated threshold
+                scale = get_scale(first_image.scale, second_image.scale)
 
-                xmean = numpy.mean(fi[nonZero], axis=0)
-                ymean = numpy.mean(si[nonZero], axis=0)
-
-                z = fi[nonZero] + si[nonZero]
-                zvar = numpy.var(z, axis=0, ddof=1)
-
-                covar = 0.5 * (zvar - (xvar + yvar))
-
-                denom = 2 * covar
-                num = (yvar - xvar) + numpy.sqrt(
-                    (yvar - xvar) * (yvar - xvar) + 4 * (covar * covar)
-                )
-                a = num / denom
-                b = ymean - a * xmean
-
-                i = 1
-                while i > 0.003921568627:
-                    thr_fi_c = i
-                    thr_si_c = (a * i) + b
-                    combt = (fi < thr_fi_c) | (si < thr_si_c)
-                    try:
-                        costReg = scipy.stats.pearsonr(fi[combt], si[combt])
-                        if costReg[0] <= 0:
-                            break
-                        i = i - 0.003921568627
-                    except ValueError:
-                        break
+                if self.fast_costes == M_FASTER:
+                    thr_fi_c, thr_si_c = self.bisection_costes(fi, si, scale)
+                else:
+                    thr_fi_c, thr_si_c = self.linear_costes(fi, si, scale)
 
                 # Costes' thershold for entire image is applied to each object
                 fi_above_thr = first_pixels > thr_fi_c
@@ -1327,6 +1234,142 @@ Select the objects to be measured.""",
         else:
             return result
 
+    def linear_costes(self, fi, si, scale_max=255):
+        """
+        Finds the Costes Automatic Threshold for colocalization using a linear algorithm.
+        Candiate thresholds are gradually decreased until Pearson R falls below 0.
+        If "Fast" mode is enabled the "steps" between tested thresholds will be increased
+        when Pearson R is much greater than 0.
+        """
+        i_step = 1 / scale_max
+        non_zero = (fi > 0) | (si > 0)
+        xvar = numpy.var(fi[non_zero], axis=0, ddof=1)
+        yvar = numpy.var(si[non_zero], axis=0, ddof=1)
+
+        xmean = numpy.mean(fi[non_zero], axis=0)
+        ymean = numpy.mean(si[non_zero], axis=0)
+
+        z = fi[non_zero] + si[non_zero]
+        zvar = numpy.var(z, axis=0, ddof=1)
+
+        covar = 0.5 * (zvar - (xvar + yvar))
+
+        denom = 2 * covar
+        num = (yvar - xvar) + numpy.sqrt(
+            (yvar - xvar) * (yvar - xvar) + 4 * (covar * covar)
+        )
+        a = num / denom
+        b = ymean - a * xmean
+
+        # Start at 1 step above the maximum value
+        img_max = max(fi.max(), si.max())
+        i = i_step * ((img_max // i_step) + 1)
+
+        num_true = None
+        fi_max = fi.max()
+        si_max = si.max()
+
+        # Initialise without a threshold
+        costReg, _ = scipy.stats.pearsonr(fi, si)
+        thr_fi_c = i
+        thr_si_c = (a * i) + b
+        while i > fi_max and (a * i) + b > si_max:
+            i -= i_step
+        while i > i_step:
+            thr_fi_c = i
+            thr_si_c = (a * i) + b
+            combt = (fi < thr_fi_c) | (si < thr_si_c)
+            try:
+                # Only run pearsonr if the input has changed.
+                if (positives := numpy.count_nonzero(combt)) != num_true:
+                    costReg, _ = scipy.stats.pearsonr(fi[combt], si[combt])
+                    num_true = positives
+
+                if costReg <= 0:
+                    break
+                elif self.fast_costes.value == M_ACCURATE or i < i_step * 10:
+                    i -= i_step
+                elif costReg > 0.45:
+                    # We're way off, step down 10x
+                    i -= i_step * 10
+                elif costReg > 0.35:
+                    # Still far from 0, step 5x
+                    i -= i_step * 5
+                elif costReg > 0.25:
+                    # Step 2x
+                    i -= i_step * 2
+                else:
+                    i -= i_step
+            except ValueError:
+                break
+        return thr_fi_c, thr_si_c
+
+    def bisection_costes(self, fi, si, scale_max=255):
+        """
+        Finds the Costes Automatic Threshold for colocalization using a bisection algorithm.
+        Candidate thresholds are selected from within a window of possible intensities,
+        this window is narrowed based on the R value of each tested candidate.
+        We're looking for the first point below 0, and R value can become highly variable
+        at lower thresholds in some samples. Therefore the candidate tested in each
+        loop is 1/6th of the window size below the maximum value (as opposed to the midpoint).
+        """
+
+        non_zero = (fi > 0) | (si > 0)
+        xvar = numpy.var(fi[non_zero], axis=0, ddof=1)
+        yvar = numpy.var(si[non_zero], axis=0, ddof=1)
+
+        xmean = numpy.mean(fi[non_zero], axis=0)
+        ymean = numpy.mean(si[non_zero], axis=0)
+
+        z = fi[non_zero] + si[non_zero]
+        zvar = numpy.var(z, axis=0, ddof=1)
+
+        covar = 0.5 * (zvar - (xvar + yvar))
+
+        denom = 2 * covar
+        num = (yvar - xvar) + numpy.sqrt(
+            (yvar - xvar) * (yvar - xvar) + 4 * (covar * covar)
+        )
+        a = num / denom
+        b = ymean - a * xmean
+
+        # Initialise variables
+        left = 1
+        right = scale_max
+        mid = ((right - left) // (6/5)) + left
+        lastmid = 0
+        # Marks the value with the last positive R value.
+        valid = 1
+
+        while lastmid != mid:
+            thr_fi_c = mid / scale_max
+            thr_si_c = (a * thr_fi_c) + b
+            combt = (fi < thr_fi_c) | (si < thr_si_c)
+            if numpy.count_nonzero(combt) <= 2:
+                # Can't run pearson with only 2 values.
+                left = mid - 1
+            else:
+                try:
+                    costReg, _ = scipy.stats.pearsonr(fi[combt], si[combt])
+                    if costReg < 0:
+                        left = mid - 1
+                    elif costReg >= 0:
+                        right = mid + 1
+                        valid = mid
+                except ValueError:
+                    # Catch misc Pearson errors with low sample numbers
+                    left = mid - 1
+            lastmid = mid
+            if right - left > 6:
+                mid = ((right - left) // (6 / 5)) + left
+            else:
+                mid = ((right - left) // 2) + left
+
+        thr_fi_c = (valid - 1) / scale_max
+        thr_si_c = (a * thr_fi_c) + b
+
+        return thr_fi_c, thr_si_c
+
     def get_measurement_columns(self, pipeline):
         """Return column definitions for all measurements made by this module"""
         columns = []
@@ -1335,84 +1378,84 @@ Select the objects to be measured.""",
                 if self.do_corr_and_slope:
                     columns += [
                         (
-                            cellprofiler_core.measurement.IMAGE,
+                            "Image",
                             F_CORRELATION_FORMAT % (first_image, second_image),
-                            cellprofiler_core.measurement.COLTYPE_FLOAT,
+                            COLTYPE_FLOAT,
                         ),
                         (
-                            cellprofiler_core.measurement.IMAGE,
+                            "Image",
                             F_SLOPE_FORMAT % (first_image, second_image),
-                            cellprofiler_core.measurement.COLTYPE_FLOAT,
+                            COLTYPE_FLOAT,
                         ),
                     ]
                 if self.do_overlap:
                     columns += [
                         (
-                            cellprofiler_core.measurement.IMAGE,
+                            "Image",
                             F_OVERLAP_FORMAT % (first_image, second_image),
-                            cellprofiler_core.measurement.COLTYPE_FLOAT,
+                            COLTYPE_FLOAT,
                         ),
                         (
-                            cellprofiler_core.measurement.IMAGE,
+                            "Image",
                             F_K_FORMAT % (first_image, second_image),
-                            cellprofiler_core.measurement.COLTYPE_FLOAT,
+                            COLTYPE_FLOAT,
                         ),
                         (
-                            cellprofiler_core.measurement.IMAGE,
+                            "Image",
                             F_K_FORMAT % (second_image, first_image),
-                            cellprofiler_core.measurement.COLTYPE_FLOAT,
+                            COLTYPE_FLOAT,
                         ),
                     ]
                 if self.do_manders:
                     columns += [
                         (
-                            cellprofiler_core.measurement.IMAGE,
+                            "Image",
                             F_MANDERS_FORMAT % (first_image, second_image),
-                            cellprofiler_core.measurement.COLTYPE_FLOAT,
+                            COLTYPE_FLOAT,
                         ),
                         (
-                            cellprofiler_core.measurement.IMAGE,
+                            "Image",
                             F_MANDERS_FORMAT % (second_image, first_image),
-                            cellprofiler_core.measurement.COLTYPE_FLOAT,
+                            COLTYPE_FLOAT,
                         ),
                     ]
 
                 if self.do_rwc:
                     columns += [
                         (
-                            cellprofiler_core.measurement.IMAGE,
+                            "Image",
                             F_RWC_FORMAT % (first_image, second_image),
-                            cellprofiler_core.measurement.COLTYPE_FLOAT,
+                            COLTYPE_FLOAT,
                         ),
                         (
-                            cellprofiler_core.measurement.IMAGE,
+                            "Image",
                             F_RWC_FORMAT % (second_image, first_image),
-                            cellprofiler_core.measurement.COLTYPE_FLOAT,
+                            COLTYPE_FLOAT,
                         ),
                     ]
                 if self.do_costes:
                     columns += [
                         (
-                            cellprofiler_core.measurement.IMAGE,
+                            "Image",
                             F_COSTES_FORMAT % (first_image, second_image),
-                            cellprofiler_core.measurement.COLTYPE_FLOAT,
+                            COLTYPE_FLOAT,
                         ),
                         (
-                            cellprofiler_core.measurement.IMAGE,
+                            "Image",
                             F_COSTES_FORMAT % (second_image, first_image),
-                            cellprofiler_core.measurement.COLTYPE_FLOAT,
+                            COLTYPE_FLOAT,
                         ),
                     ]
 
             if self.wants_objects():
-                for i in range(self.object_count.value):
-                    object_name = self.object_groups[i].object_name.value
+                for i in range(len(self.objects_list.value)):
+                    object_name = self.objects_list.value[i]
                     if self.do_corr_and_slope:
                         columns += [
                             (
                                 object_name,
                                 F_CORRELATION_FORMAT % (first_image, second_image),
-                                cellprofiler_core.measurement.COLTYPE_FLOAT,
+                                COLTYPE_FLOAT,
                             )
                         ]
                     if self.do_overlap:
@@ -1420,17 +1463,17 @@ Select the objects to be measured.""",
                             (
                                 object_name,
                                 F_OVERLAP_FORMAT % (first_image, second_image),
-                                cellprofiler_core.measurement.COLTYPE_FLOAT,
+                                COLTYPE_FLOAT,
                             ),
                             (
                                 object_name,
                                 F_K_FORMAT % (first_image, second_image),
-                                cellprofiler_core.measurement.COLTYPE_FLOAT,
+                                COLTYPE_FLOAT,
                             ),
                             (
                                 object_name,
                                 F_K_FORMAT % (second_image, first_image),
-                                cellprofiler_core.measurement.COLTYPE_FLOAT,
+                                COLTYPE_FLOAT,
                             ),
                         ]
                     if self.do_manders:
@@ -1438,12 +1481,12 @@ Select the objects to be measured.""",
                             (
                                 object_name,
                                 F_MANDERS_FORMAT % (first_image, second_image),
-                                cellprofiler_core.measurement.COLTYPE_FLOAT,
+                                COLTYPE_FLOAT,
                             ),
                             (
                                 object_name,
                                 F_MANDERS_FORMAT % (second_image, first_image),
-                                cellprofiler_core.measurement.COLTYPE_FLOAT,
+                                COLTYPE_FLOAT,
                             ),
                         ]
                     if self.do_rwc:
@@ -1451,12 +1494,12 @@ Select the objects to be measured.""",
                             (
                                 object_name,
                                 F_RWC_FORMAT % (first_image, second_image),
-                                cellprofiler_core.measurement.COLTYPE_FLOAT,
+                                COLTYPE_FLOAT,
                             ),
                             (
                                 object_name,
                                 F_RWC_FORMAT % (second_image, first_image),
-                                cellprofiler_core.measurement.COLTYPE_FLOAT,
+                                COLTYPE_FLOAT,
                             ),
                         ]
                     if self.do_costes:
@@ -1464,12 +1507,12 @@ Select the objects to be measured.""",
                             (
                                 object_name,
                                 F_COSTES_FORMAT % (first_image, second_image),
-                                cellprofiler_core.measurement.COLTYPE_FLOAT,
+                                COLTYPE_FLOAT,
                             ),
                             (
                                 object_name,
                                 F_COSTES_FORMAT % (second_image, first_image),
-                                cellprofiler_core.measurement.COLTYPE_FLOAT,
+                                COLTYPE_FLOAT,
                             ),
                         ]
         return columns
@@ -1477,12 +1520,12 @@ Select the objects to be measured.""",
     def get_categories(self, pipeline, object_name):
         """Return the categories supported by this module for the given object
 
-        object_name - name of the measured object or cellprofiler_core.measurement.IMAGE
+        object_name - name of the measured object or IMAGE
         """
-        if (object_name == cellprofiler_core.measurement.IMAGE and self.wants_images()) or (
-            (object_name != cellprofiler_core.measurement.IMAGE)
+        if (object_name == "Image" and self.wants_images()) or (
+            (object_name != "Image")
             and self.wants_objects()
-            and (object_name in [x.object_name.value for x in self.object_groups])
+            and (object_name in self.objects_list.value)
         ):
             return ["Correlation"]
         return []
@@ -1491,7 +1534,7 @@ Select the objects to be measured.""",
         if self.get_categories(pipeline, object_name) == [category]:
             results = []
             if self.do_corr_and_slope:
-                if object_name == cellprofiler_core.measurement.IMAGE:
+                if object_name == "Image":
                     results += ["Correlation", "Slope"]
                 else:
                     results += ["Correlation"]
@@ -1517,9 +1560,16 @@ Select the objects to be measured.""",
                     result.append("%s_%s" % (i2, i1))
         return result
 
-    def upgrade_settings(
-        self, setting_values, variable_revision_number, module_name
-    ):
+    def validate_module(self, pipeline):
+        """Make sure chosen objects are selected only once"""
+        if len(self.images_list.value) < 2:
+            raise ValidationError("This module needs at least 2 images to be selected", self.images_list)
+
+        if self.wants_objects():
+            if len(self.objects_list.value) == 0:
+                raise ValidationError("No object sets selected", self.objects_list)
+
+    def upgrade_settings(self, setting_values, variable_revision_number, module_name):
         """Adjust the setting values for pipelines saved under old revisions"""
         if variable_revision_number < 2:
             raise NotImplementedError(
@@ -1534,7 +1584,41 @@ Select the objects to be measured.""",
             )
             variable_revision_number = 3
 
+        if variable_revision_number == 3:
+            num_images = int(setting_values[0])
+            num_objects = int(setting_values[1])
+            div_img = 2 + num_images
+            div_obj = div_img + 2 + num_objects
+            images_set = set(setting_values[2:div_img])
+            thr_mode = setting_values[div_img : div_img + 2]
+            objects_set = set(setting_values[div_img + 2 : div_obj])
+            other_settings = setting_values[div_obj:]
+            if "None" in images_set:
+                images_set.remove("None")
+            if "None" in objects_set:
+                objects_set.remove("None")
+            images_string = ", ".join(map(str, images_set))
+            objects_string = ", ".join(map(str, objects_set))
+            setting_values = (
+                [images_string] + thr_mode + [objects_string] + other_settings
+            )
+            variable_revision_number = 4
+        if variable_revision_number == 4:
+            # Add costes mode switch
+            setting_values += [M_ACCURATE]
+            variable_revision_number = 5
         return setting_values, variable_revision_number
 
     def volumetric(self):
         return True
+
+
+def get_scale(scale_1, scale_2):
+    if scale_1 is not None and scale_2 is not None:
+        return max(scale_1, scale_2)
+    elif scale_1 is not None:
+        return scale_1
+    elif scale_2 is not None:
+        return scale_2
+    else:
+        return 255

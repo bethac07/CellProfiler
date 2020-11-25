@@ -1,5 +1,3 @@
-# coding=utf-8
-
 """
 ReduceNoise
 ===========
@@ -9,7 +7,7 @@ using a neighborhood of pixels around a central pixel for denoising, such
 as in **GaussianFilter**, multiple neighborhoods are pooled together. The
 neighborhood pool is determined by scanning the image for regions similar to
 the area around the central pixel using a correlation metric and a cutoff value.
-See `this tutorial`_ for more information.
+See `this tutorial <http://scikit-image.org/docs/dev/auto_examples/filters/plot_nonlocal_means.html>`__ for more information.
 
 |
 
@@ -19,18 +17,16 @@ Supports 2D? Supports 3D? Respects masks?
 YES          YES          NO
 ============ ============ ===============
 
-.. _this tutorial: http://scikit-image.org/docs/dev/auto_examples/filters/plot_nonlocal_means.html
 """
 
 import skimage.restoration
 import skimage.util
+from cellprofiler_core.image import Image
+from cellprofiler_core.module import ImageProcessing
+from cellprofiler_core.setting.text import Integer, Float
 
-import cellprofiler_core.image
-import cellprofiler_core.module
-import cellprofiler_core.setting
 
-
-class ReduceNoise(cellprofiler_core.module.ImageProcessing):
+class ReduceNoise(ImageProcessing):
     category = "Advanced"
 
     module_name = "ReduceNoise"
@@ -40,17 +36,17 @@ class ReduceNoise(cellprofiler_core.module.ImageProcessing):
     def create_settings(self):
         super(ReduceNoise, self).create_settings()
 
-        self.size = cellprofiler_core.setting.Integer(
+        self.size = Integer(
             text="Size", value=7, doc="Size of the patches to use for noise reduction."
         )
 
-        self.distance = cellprofiler_core.setting.Integer(
+        self.distance = Integer(
             text="Distance",
             value=11,
             doc="Maximal distance in pixels to search for patches to use for denoising.",
         )
 
-        self.cutoff_distance = cellprofiler_core.setting.Float(
+        self.cutoff_distance = Float(
             text="Cut-off distance",
             value=0.1,
             doc="""\
@@ -92,9 +88,7 @@ image.
             patch_size=self.size.value,
         )
 
-        y = cellprofiler_core.image.Image(
-            dimensions=dimensions, image=y_data, parent_image=x
-        )
+        y = Image(dimensions=dimensions, image=y_data, parent_image=x)
 
         images.add(y_name, y)
 

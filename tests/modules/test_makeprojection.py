@@ -3,17 +3,21 @@ import six.moves
 
 import cellprofiler_core.image
 import cellprofiler_core.measurement
+
+
 import cellprofiler.modules.makeprojection
 import cellprofiler_core.object
 import cellprofiler_core.pipeline
 import cellprofiler_core.workspace
+import tests.modules
 
 IMAGE_NAME = "image"
 PROJECTED_IMAGE_NAME = "projectedimage"
 
 
 def test_load_v2():
-    with open("./tests/resources/modules/makeprojection/v2.pipeline", "r") as fd:
+    file = tests.modules.get_test_resources_directory("makeprojection/v2.pipeline")
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -91,7 +95,12 @@ def run_image_set(projection_type, images_and_masks, frequency=9, run_last=True)
     module.prepare_group(workspace, {}, [image_count + 1])
     image_set = image_set_list.get_image_set(image_count)
     w = cellprofiler_core.workspace.Workspace(
-        pipeline, module, image_set, cellprofiler_core.object.ObjectSet(), m, image_set_list
+        pipeline,
+        module,
+        image_set,
+        cellprofiler_core.object.ObjectSet(),
+        m,
+        image_set_list,
     )
     module.run(w)
     image_provider = image_set.get_image_provider(PROJECTED_IMAGE_NAME)

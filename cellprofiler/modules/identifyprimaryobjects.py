@@ -1,7 +1,7 @@
-# coding=utf-8
-
 import math
 
+import cellprofiler_core.module.image_segmentation
+import cellprofiler_core.object
 import centrosome.cpmorphology
 import centrosome.outline
 import centrosome.propagate
@@ -9,14 +9,15 @@ import centrosome.threshold
 import numpy
 import scipy.ndimage
 import scipy.sparse
-import skimage.morphology
+import skimage.segmentation
+from cellprofiler_core.setting import Binary, Color
+from cellprofiler_core.setting.choice import Choice
+from cellprofiler_core.setting.range import IntegerRange
+from cellprofiler_core.setting.text import Integer, Float
 
 import cellprofiler.gui.help
 import cellprofiler.gui.help.content
-import cellprofiler_core.object
-import cellprofiler_core.setting
 from cellprofiler.modules import _help, threshold
-import cellprofiler_core.module.image_segmentation
 
 __doc__ = """\
 IdentifyPrimaryObjects
@@ -115,7 +116,7 @@ What do I get as output?
 
 A set of primary objects are produced by this module, which can be used
 in downstream modules for measurement purposes or other operations. See
-the section `"Measurements made by this module" <#Measurements_made_by_thismodule>`__ below
+the section "Measurements made by this module" below
 for the measurements that are produced directly by this module. Once the module
 has finished processing, the module display window will show the
 following panels:
@@ -321,7 +322,9 @@ SHAPE_DECLUMPING_ICON = cellprofiler.gui.help.content.image_resource(
 )
 
 
-class IdentifyPrimaryObjects(cellprofiler_core.module.image_segmentation.ImageSegmentation):
+class IdentifyPrimaryObjects(
+    cellprofiler_core.module.image_segmentation.ImageSegmentation
+):
     variable_revision_number = 14
 
     category = "Object Processing"
@@ -345,7 +348,7 @@ class IdentifyPrimaryObjects(cellprofiler_core.module.image_segmentation.ImageSe
         self.y_name.text = "Name the primary objects to be identified"
         self.y_name.doc = "Enter the name that you want to call the objects identified by this module."
 
-        self.size_range = cellprofiler_core.setting.IntegerRange(
+        self.size_range = IntegerRange(
             SIZE_RANGE_SETTING_TEXT,
             (10, 40),
             minval=1,
@@ -384,7 +387,7 @@ A few important notes:
             ),
         )
 
-        self.exclude_size = cellprofiler_core.setting.Binary(
+        self.exclude_size = Binary(
             EXCLUDE_SIZE_SETTING_TEXT,
             True,
             doc="""\
@@ -411,7 +414,7 @@ desired.
             ),
         )
 
-        self.exclude_border_objects = cellprofiler_core.setting.Binary(
+        self.exclude_border_objects = Binary(
             "Discard objects touching the border of the image?",
             True,
             doc="""\
@@ -438,7 +441,7 @@ partial object would not be accurate.
             ),
         )
 
-        self.unclump_method = cellprofiler_core.setting.Choice(
+        self.unclump_method = Choice(
             "Method to distinguish clumped objects",
             [UN_INTENSITY, UN_SHAPE, UN_NONE],
             doc="""\
@@ -530,7 +533,7 @@ see the results of each.
             ),
         )
 
-        self.watershed_method = cellprofiler_core.setting.Choice(
+        self.watershed_method = Choice(
             "Method to draw dividing lines between clumped objects",
             [WA_INTENSITY, WA_SHAPE, WA_PROPAGATE, WA_NONE],
             doc="""\
@@ -577,7 +580,7 @@ see the results of each.
             ),
         )
 
-        self.automatic_smoothing = cellprofiler_core.setting.Binary(
+        self.automatic_smoothing = Binary(
             AUTOMATIC_SMOOTHING_SETTING_TEXT,
             True,
             doc="""\
@@ -609,7 +612,7 @@ calculated value.""".format(
             ),
         )
 
-        self.smoothing_filter_size = cellprofiler_core.setting.Integer(
+        self.smoothing_filter_size = Integer(
             SMOOTHING_FILTER_SIZE_SETTING_TEXT,
             10,
             doc="""\
@@ -641,7 +644,7 @@ diameter).
             ),
         )
 
-        self.automatic_suppression = cellprofiler_core.setting.Binary(
+        self.automatic_suppression = Binary(
             AUTOMATIC_MAXIMA_SUPPRESSION_SETTING_TEXT,
             True,
             doc="""\
@@ -673,7 +676,7 @@ the automatically calculated value.""".format(
             ),
         )
 
-        self.maxima_suppression_size = cellprofiler_core.setting.Float(
+        self.maxima_suppression_size = Float(
             "Suppress local maxima that are closer than this minimum allowed distance",
             7,
             minval=0,
@@ -703,7 +706,7 @@ these two settings; read the help carefully for both.
             ),
         )
 
-        self.low_res_maxima = cellprofiler_core.setting.Binary(
+        self.low_res_maxima = Binary(
             "Speed up by using lower-resolution image to find local maxima?",
             True,
             doc="""\
@@ -718,7 +721,7 @@ checking this box will have no effect.""".format(
             ),
         )
 
-        self.fill_holes = cellprofiler_core.setting.Choice(
+        self.fill_holes = Choice(
             "Fill holes in identified objects?",
             FH_ALL,
             value=FH_THRESHOLDING,
@@ -743,7 +746,7 @@ or more objects) are filled in:
             ),
         )
 
-        self.limit_choice = cellprofiler_core.setting.Choice(
+        self.limit_choice = Choice(
             "Handling of objects if excessive number of objects identified",
             [LIMIT_NONE, LIMIT_ERASE],
             doc="""\
@@ -764,7 +767,7 @@ ways:
             ),
         )
 
-        self.maximum_object_count = cellprofiler_core.setting.Integer(
+        self.maximum_object_count = Integer(
             "Maximum number of objects",
             value=500,
             minval=2,
@@ -776,7 +779,7 @@ This setting limits the number of objects in the image. See the
 documentation for the previous setting for details.""",
         )
 
-        self.want_plot_maxima = cellprofiler_core.setting.Binary(
+        self.want_plot_maxima = Binary(
             "Display accepted local maxima?",
             False,
             doc="""\
@@ -787,21 +790,20 @@ documentation for the previous setting for details.""",
 
             Local maxima are small cluster of pixels from which objects are 'grown' during segmentation.
             Each object in a declumped segmentation will have a single maxima.
-            
+
             For example, for intensity-based declumping, maxima should appear at the brightest points in an object.
             If obvious intensity peaks are missing they were probably removed by the filters set above.""".format(
                 **{"YES": "Yes"}
             ),
         )
 
-
-        self.maxima_color = cellprofiler_core.setting.Color(
+        self.maxima_color = Color(
             "Select maxima color",
             DEFAULT_MAXIMA_COLOR,
             doc="Maxima will be displayed in this color.",
         )
 
-        self.use_advanced = cellprofiler_core.setting.Binary(
+        self.use_advanced = Binary(
             "Use advanced settings?",
             value=False,
             doc="""\
@@ -852,7 +854,7 @@ If "*{NO}*" is selected, the following settings are used:
             ),
         )
 
-        self.threshold_setting_version = cellprofiler_core.setting.Integer(
+        self.threshold_setting_version = Integer(
             "Threshold setting version", value=self.threshold.variable_revision_number
         )
 
@@ -886,9 +888,7 @@ If "*{NO}*" is selected, the following settings are used:
 
         return settings + [self.threshold_setting_version] + threshold_settings
 
-    def upgrade_settings(
-        self, setting_values, variable_revision_number, module_name
-    ):
+    def upgrade_settings(self, setting_values, variable_revision_number, module_name):
         if variable_revision_number < 10:
             raise NotImplementedError(
                 "Automatic upgrade for this module is not supported in CellProfiler 3."
@@ -950,7 +950,10 @@ If "*{NO}*" is selected, the following settings are used:
 
             threshold_settings_version = 9
 
-        threshold_upgrade_settings, threshold_settings_version = self.threshold.upgrade_settings(
+        (
+            threshold_upgrade_settings,
+            threshold_settings_version,
+        ) = self.threshold.upgrade_settings(
             ["None", "None"] + threshold_setting_values[1:],
             threshold_settings_version,
             "Threshold",
@@ -1069,9 +1072,11 @@ If "*{NO}*" is selected, the following settings are used:
             binary_image, numpy.ones((3, 3), bool)
         )
 
-        labeled_image, object_count, maxima_suppression_size = self.separate_neighboring_objects(
-            workspace, labeled_image, object_count
-        )
+        (
+            labeled_image,
+            object_count,
+            maxima_suppression_size,
+        ) = self.separate_neighboring_objects(workspace, labeled_image, object_count)
 
         unedited_labels = labeled_image.copy()
 
@@ -1185,23 +1190,27 @@ If "*{NO}*" is selected, the following settings are used:
     def _threshold_image(self, image_name, workspace, automatic=False):
         image = workspace.image_set.get_image(image_name, must_be_grayscale=True)
 
-        local_threshold, global_threshold = self.threshold.get_threshold(
+        final_threshold, orig_threshold, guide_threshold = self.threshold.get_threshold(
             image, workspace, automatic
         )
 
         self.threshold.add_threshold_measurements(
-            self.y_name.value, workspace.measurements, local_threshold, global_threshold
+            self.y_name.value,
+            workspace.measurements,
+            final_threshold,
+            orig_threshold,
+            guide_threshold,
         )
 
         binary_image, sigma = self.threshold.apply_threshold(
-            image, local_threshold, automatic
+            image, final_threshold, automatic
         )
 
         self.threshold.add_fg_bg_measurements(
             self.y_name.value, workspace.measurements, image, binary_image
         )
 
-        return binary_image, global_threshold, sigma
+        return binary_image, numpy.mean(numpy.atleast_1d(final_threshold)), sigma
 
     def smooth_image(self, image, mask):
         """Apply the smoothing filter to the image"""
@@ -1364,14 +1373,16 @@ If "*{NO}*" is selected, the following settings are used:
                 else numpy.int32
             )
             markers = numpy.zeros(watershed_image.shape, markers_dtype)
-            markers[self.labeled_maxima > 0] = -self.labeled_maxima[self.labeled_maxima > 0]
+            markers[self.labeled_maxima > 0] = -self.labeled_maxima[
+                self.labeled_maxima > 0
+            ]
 
             #
             # Some labels have only one maker in them, some have multiple and
             # will be split up.
             #
 
-            watershed_boundaries = skimage.morphology.watershed(
+            watershed_boundaries = skimage.segmentation.watershed(
                 connectivity=numpy.ones((3, 3), bool),
                 image=watershed_image,
                 markers=markers,
@@ -1544,12 +1555,24 @@ If "*{NO}*" is selected, the following settings are used:
                     labels=[border_excluded_labeled_image],
                 ),
             ]
-            if self.unclump_method != UN_NONE and self.watershed_method != WA_NONE and self.want_plot_maxima:
+            if (
+                self.unclump_method != UN_NONE
+                and self.watershed_method != WA_NONE
+                and self.want_plot_maxima
+            ):
                 # Generate static colormap for alpha overlay
                 from matplotlib.colors import ListedColormap
+
                 cmap = ListedColormap(self.maxima_color.value)
-                cplabels.append(dict(name="Detected maxima", labels=[self.labeled_maxima],
-                                     mode="alpha", alpha_value=1, alpha_colormap=cmap))
+                cplabels.append(
+                    dict(
+                        name="Detected maxima",
+                        labels=[self.labeled_maxima],
+                        mode="alpha",
+                        alpha_value=1,
+                        alpha_colormap=cmap,
+                    )
+                )
             title = "%s outlines" % self.y_name.value
             figure.subplot_imshow_grayscale(
                 0, 1, image, title, cplabels=cplabels, sharexy=ax

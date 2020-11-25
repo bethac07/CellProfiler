@@ -21,13 +21,21 @@ import scipy.sparse
 import wx
 import wx.adv
 import wx.html
+from cellprofiler_core.object import Objects
+from cellprofiler_core.preferences import (
+    get_interpolation_mode,
+    get_title_font_name,
+    get_default_colormap,
+    IM_NEAREST,
+    IM_BILINEAR,
+    IM_BICUBIC,
+    get_title_font_size,
+)
+from cellprofiler_core.utilities.core.object import size_similarly
 
 import cellprofiler.gui.figure
+from cellprofiler.gui.figure import NavigationToolbar
 import cellprofiler.gui.tools
-import cellprofiler_core.object
-import cellprofiler_core.preferences
-
-logger = logging.getLogger(__name__)
 
 
 class EditObjectsDialog(wx.Dialog):
@@ -132,7 +140,7 @@ class EditObjectsDialog(wx.Dialog):
         self.active_index = None
         self.mode = self.NORMAL_MODE
         self.scaling_mode = self.SM_NORMALIZED
-        self.interpolation_mode = cellprofiler_core.preferences.get_interpolation_mode()
+        self.interpolation_mode = get_interpolation_mode()
         self.label_display_mode = self.ID_LABELS_OUTLINES
         self.skip_right_button_up = False
         self.split_artist = None
@@ -223,7 +231,7 @@ class EditObjectsDialog(wx.Dialog):
         self.last_ijv = ijvx[:, :3]
         self.last_artist_save = artist_save
         self.last_to_keep = self.to_keep
-        temp = cellprofiler_core.object.Objects()
+        temp = Objects()
         temp.set_ijv(self.last_ijv, shape=self.shape)
         self.labels = [l for l, c in temp.get_labels()]
         self.init_labels()
@@ -285,7 +293,8 @@ class EditObjectsDialog(wx.Dialog):
                     self.Parent.inside_print = False
 
         self.panel = CanvasPatch(self, -1, self.figure)
-        self.toolbar = cellprofiler.gui.figure.NavigationToolbar(self.panel)
+        self.toolbar = NavigationToolbar(self.panel)
+        self.toolbar.set_message = self.discard_message
         self.sash_parent = wx.Panel(self)
         #
         # Need to reparent the canvas after instantiating the toolbar so
@@ -303,9 +312,7 @@ class EditObjectsDialog(wx.Dialog):
         self.orig_axes.set_zorder(1)  # preferentially select on click.
         self.orig_axes._adjustable = "box"
         self.orig_axes.set_title(
-            self.title,
-            fontname=cellprofiler_core.preferences.get_title_font_name(),
-            fontsize=cellprofiler_core.preferences.get_title_font_size(),
+            self.title, fontname=get_title_font_name(), fontsize=get_title_font_size(),
         )
 
         ########################################
@@ -538,7 +545,6 @@ class EditObjectsDialog(wx.Dialog):
         self.Bind(wx.EVT_MENU, self.on_help, id=wx.ID_HELP)
         self.Bind(wx.EVT_CLOSE, lambda event: self.on_close(event, wx.CANCEL))
         self.Bind(wx.EVT_SIZE, self.on_size)
-        self.Bind(wx.EVT_CONTEXT_MENU, self.on_context_menu)
         self.figure.canvas.Bind(wx.EVT_WINDOW_DESTROY, self.on_destroy)
         self.toolbar.Bind(wx.EVT_WINDOW_DESTROY, self.on_destroy)
         self.help_sash.Bind(wx.EVT_WINDOW_DESTROY, self.on_destroy)
@@ -626,7 +632,7 @@ class EditObjectsDialog(wx.Dialog):
                 self.li = numpy.hstack((self.li, li))
                 self.lj = numpy.hstack((self.lj, lj))
                 self.ll = numpy.hstack((self.ll, ll))
-        cm = matplotlib.cm.get_cmap(cellprofiler_core.preferences.get_default_colormap())
+        cm = matplotlib.cm.get_cmap(get_default_colormap())
         cm.set_bad((0, 0, 0))
 
         mappable = matplotlib.cm.ScalarMappable(cmap=cm)
@@ -704,7 +710,7 @@ class EditObjectsDialog(wx.Dialog):
             ii.append(i[mask])
             jj.append(j[mask])
             vv.append(l[mask])
-        temp = cellprofiler_core.object.Objects()
+        temp = Objects()
         temp.set_ijv(
             numpy.column_stack([numpy.hstack(x) for x in (ii, jj, vv)]),
             shape=self.shape,
@@ -754,9 +760,7 @@ class EditObjectsDialog(wx.Dialog):
                 orig_to_show[object_number] = False
         self.orig_axes.clear()
         if self.guide_image is not None and self.wants_image_display:
-            image, _ = cellprofiler_core.object.size_similarly(
-                self.orig_labels[0], self.guide_image
-            )
+            image, _ = size_similarly(self.orig_labels[0], self.guide_image)
             if image.ndim == 2:
                 image = numpy.dstack((image, image, image))
             if self.scaling_mode == self.SM_RAW:
@@ -931,6 +935,8 @@ class EditObjectsDialog(wx.Dialog):
                     return
         lnum = self.get_mouse_event_object_number(event)
         if lnum is None:
+            if event.button == 3 or wx.GetKeyState(wx.WXK_CONTROL):
+                self.on_context_menu(event)
             return
         if event.button == 1:
             # Move object into / out of working set
@@ -1058,17 +1064,17 @@ class EditObjectsDialog(wx.Dialog):
         for mid, state, help_text in (
             (
                 self.ID_INTERPOLATION_NEAREST,
-                cellprofiler_core.preferences.IM_NEAREST,
+                IM_NEAREST,
                 "Display images using the intensity of the nearest pixel (blocky)",
             ),
             (
                 self.ID_INTERPOLATION_BILINEAR,
-                cellprofiler_core.preferences.IM_BILINEAR,
+                IM_BILINEAR,
                 "Display images by blending the intensities of the four nearest pixels (smoother)",
             ),
             (
                 self.ID_INTERPOLATION_BICUBIC,
-                cellprofiler_core.preferences.IM_BICUBIC,
+                IM_BICUBIC,
                 "Display images by blending intensities using cubic spline interpolation (smoothest)",
             ),
         ):
@@ -1150,15 +1156,15 @@ class EditObjectsDialog(wx.Dialog):
         self.display()
 
     def on_nearest_neighbor_interpolation(self, event):
-        self.interpolation_mode = cellprofiler_core.preferences.IM_NEAREST
+        self.interpolation_mode = IM_NEAREST
         self.display()
 
     def on_bilinear_interpolation(self, event):
-        self.interpolation_mode = cellprofiler_core.preferences.IM_BILINEAR
+        self.interpolation_mode = IM_BILINEAR
         self.display()
 
     def on_bicubic_interpolation(self, event):
-        self.interpolation_mode = cellprofiler_core.preferences.IM_BICUBIC
+        self.interpolation_mode = IM_BICUBIC
         self.display()
 
     def on_mouse_button_up(self, event):
@@ -1513,9 +1519,7 @@ class EditObjectsDialog(wx.Dialog):
             title = self.title
 
         self.orig_axes.set_title(
-            title,
-            fontname=cellprofiler_core.preferences.get_title_font_name(),
-            fontsize=cellprofiler_core.preferences.get_title_font_size(),
+            title, fontname=get_title_font_name(), fontsize=get_title_font_size(),
         )
 
     def enter_split_mode(self, event):
@@ -1883,9 +1887,9 @@ class EditObjectsDialog(wx.Dialog):
                     marker=" ",
                 )
                 self.orig_axes.add_line(self.delete_mode_rect_artist)
-                logger.info("Starting delete at %f, %f" % self.delete_mode_start)
+                logging.info("Starting delete at %f, %f" % self.delete_mode_start)
             else:
-                self.on_exit_delete_mode(event)
+                self.exit_delete_mode(event)
 
     def on_mouse_moved_delete_mode(self, event):
         if self.delete_mode_start is not None and event.inaxes == self.orig_axes:
@@ -1968,7 +1972,7 @@ class EditObjectsDialog(wx.Dialog):
         self.record_undo()
 
     def exit_delete_mode(self, event):
-        logger.info("Exiting delete mode")
+        logging.info("Exiting delete mode")
         if self.delete_mode_artist is not None:
             self.delete_mode_artist.remove()
             self.delete_mode_artist = None
@@ -2166,3 +2170,8 @@ class EditObjectsDialog(wx.Dialog):
                 del self.artists[artist]
             if display:
                 self.display()
+
+    def discard_message(self, message):
+        # Matplotlib wants to update the status bar, but this window lacks one.
+        # So we ignore it. Matplotlib plan to remove this behaviour eventually.
+        return

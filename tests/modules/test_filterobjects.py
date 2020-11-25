@@ -8,11 +8,17 @@ import numpy
 
 import cellprofiler_core.image
 import cellprofiler_core.measurement
+import cellprofiler_core.modules
+from cellprofiler_core.constants.measurement import FF_PARENT, FF_COUNT, FF_CHILDREN_COUNT, M_LOCATION_CENTER_X, \
+    M_LOCATION_CENTER_Y, M_LOCATION_CENTER_Z, M_NUMBER_OBJECT_NUMBER
+
+
 import cellprofiler.modules.filterobjects
 import cellprofiler_core.object
 import cellprofiler_core.pipeline
 import cellprofiler_core.preferences
 import cellprofiler_core.workspace
+import tests.modules
 
 cellprofiler_core.preferences.set_headless()
 
@@ -152,17 +158,17 @@ def test_keep_single_min():
     labels = workspace.object_set.get_objects(OUTPUT_OBJECTS)
     assert numpy.all(labels.segmented == expected)
     parents = m.get_current_measurement(
-        OUTPUT_OBJECTS, cellprofiler_core.measurement.FF_PARENT % INPUT_OBJECTS
+        OUTPUT_OBJECTS, FF_PARENT % INPUT_OBJECTS
     )
     assert len(parents) == 1
     assert parents[0] == 2
     assert (
         m.get_current_image_measurement(
-            cellprofiler_core.measurement.FF_COUNT % OUTPUT_OBJECTS
+            FF_COUNT % OUTPUT_OBJECTS
         )
         == 1
     )
-    feature = cellprofiler_core.measurement.FF_CHILDREN_COUNT % OUTPUT_OBJECTS
+    feature = FF_CHILDREN_COUNT % OUTPUT_OBJECTS
     child_count = m.get_current_measurement(INPUT_OBJECTS, feature)
     assert len(child_count) == 2
     assert child_count[0] == 0
@@ -469,7 +475,8 @@ def test_renumber_other():
 
 
 def test_load_v3():
-    with open("./tests/resources/modules/filterobjects/v3.pipeline", "r") as fd:
+    file = tests.modules.get_test_resources_directory("filterobjects/v3.pipeline")
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -495,7 +502,8 @@ def test_load_v3():
 
 
 def test_load_v4():
-    with open("./tests/resources/modules/filterobjects/v4.pipeline", "r") as fd:
+    file = tests.modules.get_test_resources_directory("filterobjects/v4.pipeline")
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -536,7 +544,8 @@ def test_load_v4():
 
 
 def test_load_v5():
-    with open("./tests/resources/modules/filterobjects/v5.pipeline", "r") as fd:
+    file = tests.modules.get_test_resources_directory("filterobjects/v5.pipeline")
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -578,7 +587,8 @@ def test_load_v5():
 
 
 def test_load_v6():
-    with open("./tests/resources/modules/filterobjects/v6.pipeline", "r") as fd:
+    file = tests.modules.get_test_resources_directory("filterobjects/v6.pipeline")
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -621,7 +631,8 @@ def test_load_v6():
 
 
 def test_load_v7():
-    with open("./tests/resources/modules/filterobjects/v7.pipeline", "r") as fd:
+    file = tests.modules.get_test_resources_directory("filterobjects/v7.pipeline")
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -639,8 +650,8 @@ def test_load_v7():
     assert module.mode == cellprofiler.modules.filterobjects.MODE_MEASUREMENTS
     assert module.filter_choice == cellprofiler.modules.filterobjects.FI_LIMITS
     assert (
-            module.per_object_assignment
-            == cellprofiler.modules.filterobjects.PO_PARENT_WITH_MOST_OVERLAP
+        module.per_object_assignment
+        == cellprofiler.modules.filterobjects.PO_PARENT_WITH_MOST_OVERLAP
     )
     assert (
         module.rules_directory.dir_choice
@@ -944,21 +955,21 @@ def test_measurements():
 
     for input_object_name, output_object_name in object_names:
         assert measurements.has_current_measurements(
-            cellprofiler_core.measurement.IMAGE,
-            cellprofiler_core.measurement.FF_COUNT % output_object_name,
+            "Image",
+            FF_COUNT % output_object_name,
         )
 
         assert measurements.has_current_measurements(
             input_object_name,
-            cellprofiler_core.measurement.FF_CHILDREN_COUNT % output_object_name,
+            FF_CHILDREN_COUNT % output_object_name,
         )
 
         output_object_features = [
-            cellprofiler_core.measurement.FF_PARENT % input_object_name,
-            cellprofiler_core.measurement.M_LOCATION_CENTER_X,
-            cellprofiler_core.measurement.M_LOCATION_CENTER_Y,
-            cellprofiler_core.measurement.M_LOCATION_CENTER_Z,
-            cellprofiler_core.measurement.M_NUMBER_OBJECT_NUMBER,
+            FF_PARENT % input_object_name,
+            M_LOCATION_CENTER_X,
+            M_LOCATION_CENTER_Y,
+            M_LOCATION_CENTER_Z,
+            M_NUMBER_OBJECT_NUMBER,
         ]
 
         for feature in output_object_features:
@@ -1140,10 +1151,10 @@ class FakeClassifier(object):
 
         classes - a vector of class numbers to be used to populate classes_
         """
-        answers_ = answers
-        classes_ = classes
+        self.answers_ = answers
+        self.classes_ = classes
 
-    def predict(*args, **kwargs):
+    def predict(self, *args, **kwargs):
         return self.answers_
 
 

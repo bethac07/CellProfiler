@@ -1,12 +1,13 @@
 # coding:utf-8
 
 import webbrowser
+import wx.adv
 
+from cellprofiler.gui.dialog import AboutDialogInfo
 import cellprofiler.gui.help.content
 import cellprofiler.gui.help.search
 import cellprofiler.gui.htmldialog
 import cellprofiler.gui.menu
-import cellprofiler_core.modules
 
 
 class Menu(cellprofiler.gui.menu.Menu):
@@ -19,6 +20,8 @@ class Menu(cellprofiler.gui.menu.Menu):
             "Show Welcome Screen",
             event_fn=lambda _: self.frame.show_welcome_screen(True),
         )
+
+        self.append("Search help...", event_fn=lambda _: self.__on_search_help())
 
         self.append("Online Manual", event_fn=self.__on_help_online_manual)
 
@@ -71,6 +74,13 @@ class Menu(cellprofiler.gui.menu.Menu):
         )
 
         self.append(
+            "Identifying 3D objects",
+            contents=cellprofiler.gui.help.content.read_content(
+                "other_3d_identify.rst"
+            ),
+        )
+
+        self.append(
             "Batch Processing",
             contents=cellprofiler.gui.help.content.read_content("other_batch.rst"),
         )
@@ -89,7 +99,18 @@ class Menu(cellprofiler.gui.menu.Menu):
 
         self.AppendSeparator()
 
-        self.append("Search help...", event_fn=lambda _: self.__on_search_help())
+        self.append("Check for updates", event_fn=self.find_update)
+
+        self.append("About CellProfiler", event_fn=lambda _: self.about())
+
+    @staticmethod
+    def about():
+        info = AboutDialogInfo()
+        wx.adv.AboutBox(info)
+
+    def find_update(self, event):
+        from cellprofiler.gui.checkupdate import check_update
+        check_update(self.frame, force=True)
 
     def __figure_menu(self):
         figure_menu = cellprofiler.gui.menu.Menu(self.frame)
@@ -117,20 +138,6 @@ class Menu(cellprofiler.gui.menu.Menu):
 
     def __legacy_menu(self):
         legacy_menu = cellprofiler.gui.menu.Menu(self.frame)
-
-        legacy_menu.append(
-            "Load Modules",
-            contents=cellprofiler.gui.help.content.read_content(
-                "legacy_load_modules.rst"
-            ),
-        )
-
-        legacy_menu.append(
-            "Setting the Output Filename",
-            contents=cellprofiler.gui.help.content.read_content(
-                "legacy_output_file.rst"
-            ),
-        )
 
         legacy_menu.append(
             "MATLAB format images",
@@ -169,20 +176,6 @@ class Menu(cellprofiler.gui.menu.Menu):
             "Using the Window Menu",
             contents=cellprofiler.gui.help.content.read_content(
                 "navigation_window_menu.rst"
-            ),
-        )
-
-        navigation_menu.append(
-            "Using the Parameter Sampling Menu",
-            contents=cellprofiler.gui.help.content.read_content(
-                "navigation_parameter_sampling_menu.rst"
-            ),
-        )
-
-        navigation_menu.append(
-            "Using the Data Tools Menu",
-            contents=cellprofiler.gui.help.content.read_content(
-                "navigation_data_tools_menu.rst"
             ),
         )
 

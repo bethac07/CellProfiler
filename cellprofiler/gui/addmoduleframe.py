@@ -1,11 +1,15 @@
 import wx
+from cellprofiler_core.utilities.core.modules import (
+    get_module_names,
+    instantiate_module,
+    get_module_class,
+)
 
 import cellprofiler.gui
 import cellprofiler.gui.cpframe
 import cellprofiler.gui.help.search
-import cellprofiler_core.module
+import cellprofiler.gui.utilities.icon
 import cellprofiler.modules
-import cellprofiler_core.preferences
 
 
 class AddModuleFrame(wx.Frame):
@@ -27,20 +31,11 @@ class AddModuleFrame(wx.Frame):
             left_panel, -1, "Module Categories", style=wx.ALIGN_CENTER
         )
         font = module_categories_text.GetFont()
-        module_categories_text.SetFont(
-            wx.Font(
-                font.GetPointSize() * 1.2,
-                font.GetFamily(),
-                font.GetStyle(),
-                wx.FONTWEIGHT_BOLD,
-            )
-        )
+        font.SetWeight(wx.FONTWEIGHT_BOLD)
+        module_categories_text.SetFont(font)
         self.__module_categories_list_box = wx.ListBox(left_panel, -1)
         # Control panel for the selected module
         selected_module_panel = wx.Panel(left_panel, -1)
-        selected_module_static_box = wx.StaticBox(
-            selected_module_panel, -1, "For Selected Module"
-        )
         add_to_pipeline_button = wx.Button(
             selected_module_panel, -1, "+ Add to Pipeline"
         )
@@ -63,7 +58,7 @@ class AddModuleFrame(wx.Frame):
             0,
             wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL,
         )
-        self.search_text = wx.TextCtrl(self)
+        self.search_text = wx.TextCtrl(self, style=wx.TE_PROCESS_ENTER)
         search_sizer.Add(self.search_text, 1, wx.EXPAND)
         self.search_button = wx.Button(self, label="Search Help")
         search_sizer.Add(self.search_button, 0, wx.EXPAND)
@@ -117,8 +112,8 @@ class AddModuleFrame(wx.Frame):
         self.Bind(
             wx.EVT_MENU, self.__on_close, id=cellprofiler.gui.cpframe.ID_FILE_EXIT
         )
+        self.Bind(wx.EVT_CHAR_HOOK, self.__on_special_key)
         self.search_text.Bind(wx.EVT_TEXT, self.__on_search_modules)
-        self.search_text.Bind(wx.EVT_TEXT_ENTER, self.__on_add_to_pipeline)
         self.search_button.Bind(wx.EVT_BUTTON, self.__on_search_help)
         self.__get_module_files()
         self.__set_categories()
@@ -126,12 +121,13 @@ class AddModuleFrame(wx.Frame):
         self.__module_categories_list_box.Select(0)
         self.__on_category_selected(None)
         self.Fit()
+        self.search_text.SetFocus()
 
     def __on_close(self, event):
         self.Hide()
 
     def __set_icon(self):
-        icon = cellprofiler.gui.get_cp_icon()
+        icon = cellprofiler.gui.utilities.icon.get_cp_icon()
         self.SetIcon(icon)
 
     def __get_module_files(self):
@@ -148,15 +144,15 @@ class AddModuleFrame(wx.Frame):
         for key in self.__module_files:
             self.__module_dict[key] = {}
 
-        for mn in cellprofiler_core.modules.get_module_names():
+        for mn in get_module_names():
 
             def loader(module_num, mn=mn):
-                module = cellprofiler_core.modules.instantiate_module(mn)
+                module = instantiate_module(mn)
                 module.set_module_num(module_num)
                 return module
 
             try:
-                module = cellprofiler_core.modules.get_module_class(mn)
+                module = get_module_class(mn)
                 if module.is_input_module():
                     continue
                 categories = (
@@ -242,11 +238,16 @@ class AddModuleFrame(wx.Frame):
 
     def __on_search_modules(self, event):
         self.__module_list_box.Enable(True)
-        if len(self.search_text.GetValue()) == 0 or self.__module_categories_list_box.GetSelection() != -1:
+        if (
+            len(self.search_text.GetValue()) == 0
+            or self.__module_categories_list_box.GetSelection() != -1
+        ):
             self.__module_categories_list_box.Select(-1)
             self.__on_category_selected(None)
-        keys = list(self.__module_dict['All'].keys())
-        keys = [key for key in keys if self.search_text.GetValue().lower() in key.lower()]
+        keys = list(self.__module_dict["All"].keys())
+        keys = [
+            key for key in keys if self.search_text.GetValue().lower() in key.lower()
+        ]
         self.__module_list_box.Clear()
         self.__module_list_box.AppendItems(sorted(keys))
         if len(keys) > 0:
@@ -254,6 +255,29 @@ class AddModuleFrame(wx.Frame):
         else:
             self.__module_list_box.AppendItems("No matching modules")
             self.__module_list_box.Enable(False)
+
+    def __on_special_key(self, event):
+        # Capture keyboard shortcuts
+        key = event.GetKeyCode()
+        numitems = len(self.__module_list_box.GetItems())
+        if key == wx.WXK_ESCAPE:
+            self.Close()
+            return
+        elif key in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+            self.__on_add_to_pipeline(event)
+            return
+        elif numitems <= 1:
+            # No point moving selector
+            pass
+        elif key == wx.WXK_DOWN:
+            i = self.__module_list_box.GetSelection()
+            self.__module_list_box.Select(min(i + 1, numitems - 1))
+            return
+        elif key == wx.WXK_UP:
+            i = self.__module_list_box.GetSelection()
+            self.__module_list_box.Select(max(0, i - 1))
+            return
+        event.Skip()
 
     def __on_getting_started(self, event):
         import cellprofiler.gui.help.content
@@ -275,7 +299,7 @@ class AddModuleFrame(wx.Frame):
         window = HtmlClickableWindow(helpframe)
         sizer.Add(window, 1, wx.EXPAND)
         window.AppendToPage(help_text)
-        helpframe.SetIcon(cellprofiler.gui.get_cp_icon())
+        helpframe.SetIcon(cellprofiler.gui.utilities.icon.get_cp_icon())
         helpframe.Layout()
         helpframe.Show()
 

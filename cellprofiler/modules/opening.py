@@ -1,12 +1,10 @@
-# coding=utf-8
-
 """
 Opening
 =======
 
 **Opening** is the dilation of the erosion of an image. It’s used to
 remove salt noise (small bright spots) and connect small dark cracks. 
-See `this tutorial`_ for more information.
+See `this tutorial <https://scikit-image.org/docs/dev/auto_examples/applications/plot_morphology.html#opening>`__ for more information.
 
 |
 
@@ -16,20 +14,17 @@ Supports 2D? Supports 3D? Respects masks?
 YES          YES          NO
 ============ ============ ===============
 
-.. _this tutorial: http://scikit-image.org/docs/dev/auto_examples/xx_applications/plot_morphology.html#opening
-
 """
 
 import numpy
 import skimage.morphology
+from cellprofiler_core.module import ImageProcessing
+from cellprofiler_core.setting import StructuringElement
 
-import cellprofiler_core.image
-import cellprofiler_core.module
-import cellprofiler_core.setting
 from cellprofiler.modules._help import HELP_FOR_STREL
 
 
-class Opening(cellprofiler_core.module.ImageProcessing):
+class Opening(ImageProcessing):
     category = "Advanced"
 
     module_name = "Opening"
@@ -39,7 +34,7 @@ class Opening(cellprofiler_core.module.ImageProcessing):
     def create_settings(self):
         super(Opening, self).create_settings()
 
-        self.structuring_element = cellprofiler_core.setting.StructuringElement(
+        self.structuring_element = StructuringElement(
             allow_planewise=True, doc=HELP_FOR_STREL
         )
 

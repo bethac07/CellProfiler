@@ -7,6 +7,7 @@ import cellprofiler.modules.unmixcolors
 import cellprofiler_core.object
 import cellprofiler_core.pipeline
 import cellprofiler_core.workspace
+import tests.modules
 
 INPUT_IMAGE = "inputimage"
 
@@ -16,7 +17,8 @@ def output_image_name(idx):
 
 
 def test_load_v1():
-    with open("./tests/resources/modules/unmixcolors/v1.pipeline", "r") as fd:
+    file = tests.modules.get_test_resources_directory("unmixcolors/v1.pipeline")
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -35,17 +37,17 @@ def test_load_v1():
     assert module.outputs[-1].image_name == "RedWine"
     for i, stain in enumerate(
         (
-                cellprofiler.modules.unmixcolors.CHOICE_HEMATOXYLIN,
-                cellprofiler.modules.unmixcolors.CHOICE_EOSIN,
-                cellprofiler.modules.unmixcolors.CHOICE_DAB,
-                cellprofiler.modules.unmixcolors.CHOICE_FAST_RED,
-                cellprofiler.modules.unmixcolors.CHOICE_FAST_BLUE,
-                cellprofiler.modules.unmixcolors.CHOICE_METHYL_GREEN,
-                cellprofiler.modules.unmixcolors.CHOICE_AEC,
-                cellprofiler.modules.unmixcolors.CHOICE_ANILINE_BLUE,
-                cellprofiler.modules.unmixcolors.CHOICE_AZOCARMINE,
-                cellprofiler.modules.unmixcolors.CHOICE_ALICAN_BLUE,
-                cellprofiler.modules.unmixcolors.CHOICE_PAS,
+            cellprofiler.modules.unmixcolors.CHOICE_HEMATOXYLIN,
+            cellprofiler.modules.unmixcolors.CHOICE_EOSIN,
+            cellprofiler.modules.unmixcolors.CHOICE_DAB,
+            cellprofiler.modules.unmixcolors.CHOICE_FAST_RED,
+            cellprofiler.modules.unmixcolors.CHOICE_FAST_BLUE,
+            cellprofiler.modules.unmixcolors.CHOICE_METHYL_GREEN,
+            cellprofiler.modules.unmixcolors.CHOICE_AEC,
+            cellprofiler.modules.unmixcolors.CHOICE_ANILINE_BLUE,
+            cellprofiler.modules.unmixcolors.CHOICE_AZOCARMINE,
+            cellprofiler.modules.unmixcolors.CHOICE_ALICAN_BLUE,
+            cellprofiler.modules.unmixcolors.CHOICE_PAS,
         )
     ):
         assert module.outputs[i].stain_choice == stain

@@ -1,5 +1,3 @@
-# coding=utf-8
-
 """
 CorrectIlluminationApply
 ========================
@@ -28,17 +26,18 @@ See also
 See also **CorrectIlluminationCalculate**.
 """
 
-import numpy as np
+import numpy
+from cellprofiler_core.image import Image
+from cellprofiler_core.module import Module
+from cellprofiler_core.setting import Divider, Binary
+from cellprofiler_core.setting import SettingsGroup
+from cellprofiler_core.setting import ValidationError
+from cellprofiler_core.setting.choice import Choice
+from cellprofiler_core.setting.do_something import DoSomething
+from cellprofiler_core.setting.do_something import RemoveSettingButton
+from cellprofiler_core.setting.subscriber import ImageSubscriber
+from cellprofiler_core.setting.text import ImageName
 
-import cellprofiler_core.image as cpi
-import cellprofiler_core.module as cpm
-import cellprofiler_core.setting as cps
-
-######################################
-#
-# Choices for "Divide or subtract"?
-#
-######################################
 DOS_DIVIDE = "Divide"
 DOS_SUBTRACT = "Subtract"
 
@@ -60,37 +59,54 @@ RE_MATCH = "Match maximums"
 SETTINGS_PER_IMAGE = 4
 
 
-class CorrectIlluminationApply(cpm.Module):
+class CorrectIlluminationApply(Module):
     category = "Image Processing"
-    variable_revision_number = 3
+    variable_revision_number = 5
     module_name = "CorrectIlluminationApply"
 
     def create_settings(self):
         """Make settings here (and set the module name)"""
         self.images = []
         self.add_image(can_delete=False)
-        self.add_image_button = cps.DoSomething("", "Add another image", self.add_image)
+        self.add_image_button = DoSomething("", "Add another image", self.add_image)
+        self.truncate_low = Binary(
+            "Set output image values less than 0 equal to 0?", 
+            True, 
+            doc="""\
+Values outside the range 0 to 1 might not be handled well by other
+modules. Select *"Yes"* to set negative values to 0, which was previously
+done automatically without ability to override.
+""" )
+
+        self.truncate_high = Binary(
+            "Set output image values greater than 1 equal to 1?", 
+            True, 
+            doc="""\
+Values outside the range 0 to 1 might not be handled well by other
+modules. Select *"Yes"* to set values greater than 1 to a maximum
+value of 1.
+""")
 
     def add_image(self, can_delete=True):
         """Add an image and its settings to the list of images"""
-        image_name = cps.ImageNameSubscriber(
+        image_name = ImageSubscriber(
             "Select the input image", "None", doc="Select the image to be corrected."
         )
 
-        corrected_image_name = cps.ImageNameProvider(
+        corrected_image_name = ImageName(
             "Name the output image",
             "CorrBlue",
             doc="Enter a name for the corrected image.",
         )
 
-        illum_correct_function_image_name = cps.ImageNameSubscriber(
+        illum_correct_function_image_name = ImageSubscriber(
             "Select the illumination function",
             "None",
             doc="""\
 Select the illumination correction function image that will be used to
 carry out the correction. This image is usually produced by another
 module or loaded as a .mat or .npy format image using the **Images** module
-or a **Load** module, most commonly **LoadSingleImage**.
+or a **LoadData** module.
 
 Note that loading .mat format images is deprecated and will be removed in
 a future version of CellProfiler. You can export .mat format images as
@@ -98,7 +114,7 @@ a future version of CellProfiler. You can export .mat format images as
 """,
         )
 
-        divide_or_subtract = cps.Choice(
+        divide_or_subtract = Choice(
             "Select how the illumination function is applied",
             [DOS_DIVIDE, DOS_SUBTRACT],
             doc="""\
@@ -120,7 +136,7 @@ somewhat empirical.
             % globals(),
         )
 
-        image_settings = cps.SettingsGroup()
+        image_settings = SettingsGroup()
         image_settings.append("image_name", image_name)
         image_settings.append("corrected_image_name", corrected_image_name)
         image_settings.append(
@@ -132,11 +148,11 @@ somewhat empirical.
         if can_delete:
             image_settings.append(
                 "remover",
-                cps.RemoveSettingButton(
+                RemoveSettingButton(
                     "", "Remove this image", self.images, image_settings
                 ),
             )
-        image_settings.append("divider", cps.Divider())
+        image_settings.append("divider", Divider())
         self.images.append(image_settings)
 
     def settings(self):
@@ -155,6 +171,10 @@ somewhat empirical.
                 image.illum_correct_function_image_name,
                 image.divide_or_subtract,
             ]
+        result += [
+            self.truncate_low,
+            self.truncate_high,
+        ]
         return result
 
     def visible_settings(self):
@@ -176,6 +196,8 @@ somewhat empirical.
                 result.append(remover)
             result.append(image.divider)
         result.append(self.add_image_button)
+        result.append(self.truncate_low)
+        result.append(self.truncate_high)
         return result
 
     def prepare_settings(self, setting_values):
@@ -191,7 +213,7 @@ somewhat empirical.
         #
         # Figure out how many images there are based on the number of setting_values
         #
-        assert len(setting_values) % SETTINGS_PER_IMAGE == 0
+        assert len(setting_values) % SETTINGS_PER_IMAGE == 2
         image_count = len(setting_values) // SETTINGS_PER_IMAGE
         del self.images[image_count:]
         while len(self.images) < image_count:
@@ -232,9 +254,11 @@ somewhat empirical.
             )
         else:
             if illum_function_pixel_data.ndim == 2:
-                illum_function_pixel_data = illum_function_pixel_data[:, :, np.newaxis]
+                illum_function_pixel_data = illum_function_pixel_data[
+                    :, :, numpy.newaxis
+                ]
         # Throw an error if image and illum data are incompatible
-        if orig_image.pixel_data.shape != illum_function_pixel_data.shape:
+        if orig_image.pixel_data.shape[:2] != illum_function_pixel_data.shape[:2]:
             raise ValueError(
                 "This module requires that the image and illumination function have equal dimensions.\n"
                 "The %s image and %s illumination function do not (%s vs %s).\n"
@@ -259,11 +283,20 @@ somewhat empirical.
                 "Unhandled option for divide or subtract: %s"
                 % image.divide_or_subtract.value
             )
+        
+        #
+        # Optionally, clip high and low values
+        #
+        if self.truncate_low.value:
+            output_pixels = numpy.where(output_pixels < 0, 0, output_pixels)
+        if self.truncate_high.value:
+            output_pixels = numpy.where(output_pixels > 1, 1, output_pixels)
+        
         #
         # Save the output image in the image set and have it inherit
         # mask & cropping from the original image.
         #
-        output_image = cpi.Image(output_pixels, parent_image=orig_image)
+        output_image = Image(output_pixels, parent_image=orig_image)
         workspace.image_set.add(corrected_image_name, output_image)
         #
         # Save images for display
@@ -280,6 +313,7 @@ somewhat empirical.
     def display(self, workspace, figure):
         """ Display one row of orig / illum / output per image setting group"""
         figure.set_subplots((3, len(self.images)))
+        nametemplate = "Illumination function:" if len(self.images) < 3 else "Illum:"
         for j, image in enumerate(self.images):
             image_name = image.image_name.value
             illum_correct_function_image_name = (
@@ -306,11 +340,8 @@ somewhat empirical.
                 "Original image: %s" % image_name,
                 sharexy=figure.subplot(0, 0),
             )
-            title = "Illumination function: %s\nmin=%f, max=%f" % (
-                illum_correct_function_image_name,
-                round(illum_image.min(), 4),
-                round(illum_image.max(), 4),
-            )
+            title = f"{nametemplate} {illum_correct_function_image_name}, " \
+                    f"min={illum_image.min():0.4f}, max={illum_image.max():0.4f}"
 
             imshow(1, j, illum_image, title, sharexy=figure.subplot(0, 0))
             imshow(
@@ -325,7 +356,7 @@ somewhat empirical.
         """If a CP 1.0 pipeline used a rescaling option other than 'No rescaling', warn the user."""
         for j, image in enumerate(self.images):
             if image.rescale_option != RE_NONE:
-                raise cps.ValidationError(
+                raise ValidationError(
                     (
                         "Your original pipeline used '%s' to rescale the final image, "
                         "but the rescaling option has been removed. Please use "
@@ -336,9 +367,7 @@ somewhat empirical.
                     image.divide_or_subtract,
                 )
 
-    def upgrade_settings(
-        self, setting_values, variable_revision_number, module_name
-    ):
+    def upgrade_settings(self, setting_values, variable_revision_number, module_name):
         """Adjust settings based on revision # of save file
 
         setting_values - sequence of string values as they appear in the
@@ -369,5 +398,14 @@ somewhat empirical.
             # If revision >= 2, initialize rescaling option for validation warning
             for i, image in enumerate(self.images):
                 image.rescale_option = RE_NONE
+
+        if variable_revision_number == 3:
+            setting_values.append("No")
+            variable_revision_number = 4
+
+        if variable_revision_number == 4:
+            setting_values = setting_values[:-1]
+            setting_values += [True,True]
+            variable_revision_number = 5
 
         return setting_values, variable_revision_number

@@ -1,6 +1,4 @@
-import base64
 import io
-import zlib
 
 import centrosome.filter
 import centrosome.smooth
@@ -14,6 +12,7 @@ import cellprofiler.modules.smooth
 import cellprofiler_core.object
 import cellprofiler_core.pipeline
 import cellprofiler_core.workspace
+import tests.modules
 
 INPUT_IMAGE_NAME = "myimage"
 OUTPUT_IMAGE_NAME = "myfilteredimage"
@@ -41,7 +40,8 @@ def make_workspace(image, mask):
 
 
 def test_load_v02():
-    with open("./tests/resources/modules/smooth/v2.pipeline", "r") as fd:
+    file = tests.modules.get_test_resources_directory("smooth/v2.pipeline")
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()

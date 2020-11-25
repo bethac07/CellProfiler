@@ -7,12 +7,15 @@ import six.moves
 
 import cellprofiler_core.image
 import cellprofiler_core.measurement
+from cellprofiler_core.constants.measurement import GROUP_NUMBER, GROUP_INDEX, COLTYPE_FLOAT, COLTYPE_INTEGER
+
 import cellprofiler.modules.measureobjectskeleton
 import cellprofiler_core.object
 import cellprofiler_core.pipeline
 import cellprofiler_core.preferences
 import cellprofiler_core.setting
 import cellprofiler_core.workspace
+import tests.modules
 
 
 IMAGE_NAME = "MyImage"
@@ -39,7 +42,8 @@ def tearDown():
 
 
 def test_load_v1():
-    with open("./tests/resources/modules/measureobjectskeleton/v1.pipeline", "r") as fd:
+    file = tests.modules.get_test_resources_directory("measureobjectskeleton/v1.pipeline")
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -64,10 +68,14 @@ def make_workspace(labels, image, mask=None, intensity_image=None, wants_graph=F
     m = cellprofiler_core.measurement.Measurements()
     image_set_list = cellprofiler_core.image.ImageSetList()
     m.add_measurement(
-        cellprofiler_core.measurement.IMAGE, cellprofiler_core.measurement.GROUP_NUMBER, 1
+        "Image",
+        GROUP_NUMBER,
+        1,
     )
     m.add_measurement(
-        cellprofiler_core.measurement.IMAGE, cellprofiler_core.measurement.GROUP_INDEX, 1
+        "Image",
+        GROUP_INDEX,
+        1,
     )
     image_set = m
     img = cellprofiler_core.image.Image(image, mask)
@@ -87,7 +95,7 @@ def make_workspace(labels, image, mask=None, intensity_image=None, wants_graph=F
         module.intensity_image_name.value = INTENSITY_IMAGE_NAME
     if wants_graph:
         module.wants_objskeleton_graph.value = True
-        module.directory.dir_choice = cellprofiler_core.setting.ABSOLUTE_FOLDER_NAME
+        module.directory.dir_choice = cellprofiler_core.preferences.ABSOLUTE_FOLDER_NAME
         module.directory.custom_path = temp_dir
         module.edge_file_name.value = EDGE_FILE
         module.vertex_file_name.value = VERTEX_FILE
@@ -130,10 +138,10 @@ def test_empty():
         )
         assert feature == expected_feature
         coltypes[expected_feature] = (
-            cellprofiler_core.measurement.COLTYPE_FLOAT
+            COLTYPE_FLOAT
             if expected
-               == cellprofiler.modules.measureobjectskeleton.F_TOTAL_OBJSKELETON_LENGTH
-            else cellprofiler_core.measurement.COLTYPE_INTEGER
+            == cellprofiler.modules.measureobjectskeleton.F_TOTAL_OBJSKELETON_LENGTH
+            else COLTYPE_INTEGER
         )
     assert all([c[0] == OBJECT_NAME for c in columns])
     assert all([c[2] == coltypes[c[1]] for c in columns])
@@ -174,7 +182,7 @@ def test_empty():
 
     module.run(workspace)
     m = workspace.measurements
-    assert isinstance(m, cellprofiler_core.measurement.Measurements)
+    assert isinstance(m,cellprofiler_core.measurement.Measurements)
     for feature in cellprofiler.modules.measureobjectskeleton.F_ALL:
         mname = "_".join(
             (
@@ -196,7 +204,7 @@ def test_trunk():
     workspace, module = make_workspace(labels, image)
     module.run(workspace)
     m = workspace.measurements
-    assert isinstance(m, cellprofiler_core.measurement.Measurements)
+    assert isinstance(m,cellprofiler_core.measurement.Measurements)
     for feature, expected in (
         (cellprofiler.modules.measureobjectskeleton.F_NUMBER_NON_TRUNK_BRANCHES, 0),
         (cellprofiler.modules.measureobjectskeleton.F_NUMBER_TRUNKS, 1),
@@ -223,11 +231,11 @@ def test_trunks():
     workspace, module = make_workspace(labels, image)
     module.run(workspace)
     m = workspace.measurements
-    assert isinstance(m, cellprofiler_core.measurement.Measurements)
+    assert isinstance(m,cellprofiler_core.measurement.Measurements)
     for feature, expected in (
         (
-                cellprofiler.modules.measureobjectskeleton.F_NUMBER_NON_TRUNK_BRANCHES,
-                [0, 0],
+            cellprofiler.modules.measureobjectskeleton.F_NUMBER_NON_TRUNK_BRANCHES,
+            [0, 0],
         ),
         (cellprofiler.modules.measureobjectskeleton.F_NUMBER_TRUNKS, [2, 1]),
     ):
@@ -255,7 +263,7 @@ def test_branch():
     workspace, module = make_workspace(labels, image)
     module.run(workspace)
     m = workspace.measurements
-    assert isinstance(m, cellprofiler_core.measurement.Measurements)
+    assert isinstance(m,cellprofiler_core.measurement.Measurements)
     for feature, expected in (
         (cellprofiler.modules.measureobjectskeleton.F_NUMBER_NON_TRUNK_BRANCHES, 1),
         (cellprofiler.modules.measureobjectskeleton.F_NUMBER_TRUNKS, 1),
@@ -286,7 +294,7 @@ def test_img_667():
     workspace, module = make_workspace(labels, image)
     module.run(workspace)
     m = workspace.measurements
-    assert isinstance(m, cellprofiler_core.measurement.Measurements)
+    assert isinstance(m,cellprofiler_core.measurement.Measurements)
     for feature, expected in (
         (cellprofiler.modules.measureobjectskeleton.F_NUMBER_NON_TRUNK_BRANCHES, 1),
         (cellprofiler.modules.measureobjectskeleton.F_NUMBER_TRUNKS, 2),
@@ -330,7 +338,7 @@ def test_quadrabranch():
     workspace, module = make_workspace(labels, image)
     module.run(workspace)
     m = workspace.measurements
-    assert isinstance(m, cellprofiler_core.measurement.Measurements)
+    assert isinstance(m,cellprofiler_core.measurement.Measurements)
     for feature, expected in (
         (cellprofiler.modules.measureobjectskeleton.F_NUMBER_NON_TRUNK_BRANCHES, 0),
         (cellprofiler.modules.measureobjectskeleton.F_NUMBER_TRUNKS, 3),
@@ -365,11 +373,11 @@ def test_wrong_size():
     workspace, module = make_workspace(labels, image)
     module.run(workspace)
     m = workspace.measurements
-    assert isinstance(m, cellprofiler_core.measurement.Measurements)
+    assert isinstance(m,cellprofiler_core.measurement.Measurements)
     for feature, expected in (
         (
-                cellprofiler.modules.measureobjectskeleton.F_NUMBER_NON_TRUNK_BRANCHES,
-                [0, 0],
+            cellprofiler.modules.measureobjectskeleton.F_NUMBER_NON_TRUNK_BRANCHES,
+            [0, 0],
         ),
         (cellprofiler.modules.measureobjectskeleton.F_NUMBER_TRUNKS, [2, 1]),
     ):

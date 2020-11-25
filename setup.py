@@ -22,15 +22,23 @@ def find_version(*pathnames):
     raise RuntimeError("Unable to find version string.")
 
 
-def find_resources(directory, subdirectory):
+def package_data():
     resources = []
-    for root, _, filenames in os.walk(os.path.join(directory, subdirectory)):
+
+    for root, _, filenames in os.walk(os.path.join("cellprofiler", "data")):
         resources += [
-            os.path.relpath(os.path.join(root, filename), directory)
+            os.path.relpath(os.path.join(root, filename), "cellprofiler")
             for filename in filenames
         ]
 
-    return resources
+    for root, _, filenames in os.walk(os.path.join("cellprofiler", "gui")):
+        resources += [
+            os.path.relpath(os.path.join(root, filename), "cellprofiler")
+            for filename in filenames
+            if ".html" in filename
+        ]
+
+    return {"cellprofiler": resources}
 
 
 setuptools.setup(
@@ -41,8 +49,8 @@ setuptools.setup(
         "Intended Audience :: Science/Research",
         "License :: OSI Approved :: BSD License",
         "Operating System :: OS Independent",
-        "Programming Language :: Python :: 2",
-        "Programming Language :: Python :: 2.7",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.8",
         "Topic :: Scientific/Engineering :: Bio-Informatics",
         "Topic :: Scientific/Engineering :: Image Recognition",
         "Topic :: Scientific/Engineering",
@@ -50,29 +58,31 @@ setuptools.setup(
     entry_points={"console_scripts": ["cellprofiler=cellprofiler.__main__:main"]},
     extras_require={
         "build": ["black", "pre-commit", "pyinstaller", "twine"],
+        "docs": ["Sphinx>=3.1.1", "sphinx-rtd-theme>=0.5.0"],
         "test": ["pytest>=3.3.2,<4"],
     },
     install_requires=[
         "boto3>=1.12.28",
-        "cellprofiler-core==4.0.0rc4",
-        "centrosome==1.1.7",
-        "docutils",
-        "h5py>=2.9",
+        "cellprofiler-core==4.0.7",
+        "centrosome==1.2.0",
+        "docutils==0.15.2",
+        "h5py==2.10.0",
         "imageio>=2.5",
         "inflect>=2.1",
+        "Jinja2>=2.11.2",
         "joblib>=0.13",
         "mahotas>=1.4",
         "matplotlib==3.1.3",
-        "mysqlclient==1.4.5",
-        "numpy>=1.18.2",
-        "pillow==7.0.0",
-        "prokaryote==2.4.1",
-        "python-bioformats==1.5.2",
-        "python-javabridge",
+        "mysqlclient==1.4.6",
+        "numpy==1.19.3",
+        "Pillow>=7.1.0",
+        "prokaryote==2.4.2",
+        "python-bioformats==4.0.0",
+        "python-javabridge==4.0.0",
         "pyzmq==18.0.1",
-        "raven>=6.10",
+        "sentry-sdk==0.18.0",
         "requests>=2.22",
-        "scikit-image>=0.16.2",
+        "scikit-image>=0.17.2",
         "scikit-learn>=0.20",
         "scipy>=1.4.1",
         "six",
@@ -80,7 +90,7 @@ setuptools.setup(
     ],
     license="BSD",
     name="CellProfiler",
-    package_data={"cellprofiler": find_resources("cellprofiler", "data")},
+    package_data=package_data(),
     include_package_data=True,
     packages=setuptools.find_packages(exclude=["tests*"]),
     python_requires=">=3.8, <4.0",

@@ -12,6 +12,8 @@ import matplotlib.colors
 import matplotlib.image
 import numpy
 import scipy.ndimage
+import skimage.exposure
+import skimage.transform
 
 import cellprofiler.gui.tools
 
@@ -258,7 +260,7 @@ class OutlinesMixin(ColorMixin):
                     self._outlines = centrosome.outline.outline(labels) != 0
                 else:
                     self._outlines |= centrosome.outline.outline(labels) != 0
-            if self.line_width > 1:
+            if self.line_width is not None and self.line_width > 1:
                 hw = float(self.line_width) / 2
                 d = scipy.ndimage.distance_transform_edt(~self._outlines)
                 dti, dtj = numpy.where((d < hw + 0.5) & ~self._outlines)
@@ -462,7 +464,7 @@ class CPImageArtist(matplotlib.artist.Artist):
         self.__objects = objects or []
         self.__masks = masks or []
         self.__interpolation = interpolation
-        self.filterrad = 4.0
+        self.filterrad = 0  # This was 4.0 but WHY?!?!
 
     def set_interpolation(self, interpolation):
         self.__interpolation = interpolation
@@ -564,7 +566,7 @@ class CPImageArtist(matplotlib.artist.Artist):
                 result[image.name] = value
         return result
 
-    def draw(self, renderer):
+    def draw(self, renderer, *args, **kwargs):
         magnification = renderer.get_image_magnification()
         shape = [0, 0]
         for image in self.__images:
@@ -620,6 +622,8 @@ class CPImageArtist(matplotlib.artist.Artist):
             pixel_data, target_view = get_tile_and_target(image.pixel_data)
             tv_alpha = target_view[:, :, 3]
             tv_image = target_view[:, :, :3]
+            if pixel_data.dtype == "bool":
+                image.normalization = NORMALIZE_RAW
             if image.normalization in (NORMALIZE_LINEAR, NORMALIZE_LOG):
                 pd_max = numpy.max(pixel_data)
                 pd_min = numpy.min(pixel_data)
@@ -676,6 +680,10 @@ class CPImageArtist(matplotlib.artist.Artist):
 
         for om in list(self.__objects) + list(self.__masks):
             assert isinstance(om, OutlinesMixin)
+            if isinstance(om, MaskData) and om.mode == MODE_LINES:
+                # Lines mode currently not working with Masks
+                om.mode = MODE_OUTLINES
+                om.alpha = 0.8
             if om.mode in (MODE_LINES, MODE_HIDE):
                 continue
             if om.mode == MODE_OUTLINES:
@@ -711,54 +719,85 @@ class CPImageArtist(matplotlib.artist.Artist):
             tv_image[tv_alpha != 0, :] /= tv_alpha[tv_alpha != 0][:, numpy.newaxis]
 
         target = target[:, :, :3]
+
         numpy.clip(target, 0, 1, target)
+
         if flip_lr:
             target = numpy.fliplr(target)
+
         if self.axes.viewLim.height < 0:
             target = numpy.flipud(target)
-        im = matplotlib.image.fromarray(target[:, :, :3], 0)
-        im.is_grayscale = False
-        im.set_interpolation(self.mp_interpolation)
+
+        # im = matplotlib.image.fromarray(target[:, :, :3], 0)
+        # im.is_grayscale = False
+        # im.set_interpolation(self.mp_interpolation)
         fc = matplotlib.rcParams["axes.facecolor"]
         bg = matplotlib.colors.colorConverter.to_rgba(fc, 0)
-        im.set_bg(*bg)
+        # im.set_bg(*bg)
 
         # image input dimensions
-        im.reset_matrix()
+        # im.reset_matrix()
 
         # the viewport translation in the X direction
         tx = view_xmin - min(vl.x0, vl.x1) - 0.5
+
         #
         # the viewport translation in the Y direction
         # which is from the bottom of the screen
         #
-        if self.axes.viewLim.height < 0:
-            # ty = (view_ymin - self.axes.viewLim.y1) - .5
-            ty = self.axes.viewLim.y0 - view_ymax + 0.5
-        else:
-            ty = view_ymin - self.axes.viewLim.y0 - 0.5
-        im.apply_translation(tx, ty)
+        # if self.axes.viewLim.height < 0:
+        # ty = (view_ymin - self.axes.viewLim.y1) - .5
+        # ty = self.axes.viewLim.y0 - view_ymax + 0.5
+        # else:
+        #     ty = view_ymin - self.axes.viewLim.y0 - 0.5
+
+        # im.apply_translation(tx, ty)
+
         l, b, r, t = self.axes.bbox.extents
+
         if b > t:
             t, b = b, t
+
         width_display = (r - l + 1) * magnification
         height_display = (t - b + 1) * magnification
 
         # resize viewport to display
         sx = width_display / self.axes.viewLim.width
         sy = abs(height_display / self.axes.viewLim.height)
-        im.apply_scaling(sx, sy)
-        im.resize(width_display, height_display, norm=1, radius=self.filterrad)
-        bbox = self.axes.bbox.frozen()
 
-        # Two ways to do this, try by version
-        mplib_version = matplotlib.__version__.split(".")
-        if mplib_version[0] == "0":
-            renderer.draw_image(l, b, im, bbox)
-        else:
-            gc = renderer.new_gc()
-            gc.set_clip_rectangle(bbox)
-            renderer.draw_image(gc, l, b, im)
+        # im.apply_scaling(sx, sy)
+        # im.resize(width_display, height_display, norm=1, radius=self.filterrad)
+
+        bounding_box = self.axes.bbox.frozen()
+
+        graphics_context = renderer.new_gc()
+
+        graphics_context.set_clip_rectangle(bounding_box)
+
+        image = numpy.zeros((target.shape[0], target.shape[1], 4), numpy.uint8)
+
+        image[:, :, 3] = 255
+
+        image[:, :, :3] = skimage.exposure.rescale_intensity(
+            target, out_range=numpy.uint8
+        )
+
+        image = skimage.transform.rescale(image, (sx, sy, 1))
+
+        image = skimage.img_as_ubyte(image)
+
+        im_xmin = int(min(vl.x0, vl.x1))
+        im_xmax = int(max(vl.x0, vl.x1))
+        im_ymin = int(min(vl.y0, vl.y1))
+        im_ymax = int(max(vl.y0, vl.y1))
+        # Correct drawing start point when origin is not 0
+        if im_xmin < 0:
+            l = ((0 - im_xmin) / (im_xmax - im_xmin) * (r - l)) + l
+        if im_ymax > shape[0]:  # origin corresponds to max y, not 0:
+            b = ((im_ymax - shape[0]) / (im_ymax - im_ymin) * (t - b)) + b
+
+        renderer.draw_image(graphics_context, l, b, image)
+
         for om in list(self.__objects) + list(self.__masks):
             assert isinstance(om, OutlinesMixin)
             if om.mode == MODE_LINES:
@@ -830,7 +869,7 @@ class CPImageArtist(matplotlib.artist.Artist):
         )
         for start, item in enumerate(menu_items):
             assert isinstance(item, wx.MenuItem)
-            if item.Label == self.MI_INTERPOLATION:
+            if item.ItemLabel == self.MI_INTERPOLATION:
                 break
         else:
             return
@@ -841,7 +880,7 @@ class CPImageArtist(matplotlib.artist.Artist):
         label_fmt = "--- %s ---"
         for key, sequence in breaks:
             label = label_fmt % key
-            if idx >= len(menu_items) or menu_items[idx].Text != label:
+            if idx >= len(menu_items) or menu_items[idx].ItemLabel != label:
                 item = menu.Insert(idx, wx.NewId(), label)
                 item.Enable(False)
                 menu_items.insert(idx, item)
@@ -853,7 +892,7 @@ class CPImageArtist(matplotlib.artist.Artist):
                 name = data.name
                 if (
                     idx == len(menu_items)
-                    or menu_items[idx].Text.startswith("---")
+                    or menu_items[idx].ItemLabel.startswith("---")
                     or menu_items[idx].IsSeparator()
                 ):
                     sub_menu = wx.Menu()
@@ -862,7 +901,7 @@ class CPImageArtist(matplotlib.artist.Artist):
                         # otherwise bad things happen on Mac
                         # Can't have blank name and non-stock ID
                         name = " "
-                    sub_menu_item = menu.InsertMenu(idx, my_id, name, sub_menu)
+                    sub_menu_item = menu.Insert(idx, my_id, name, sub_menu)
                     if data.mode == MODE_HIDE:
                         sub_menu_item.Enable(False)
                     menu_items.insert(idx, sub_menu_item)

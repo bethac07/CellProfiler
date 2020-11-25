@@ -6,11 +6,16 @@ import six.moves
 
 import cellprofiler_core.image
 import cellprofiler_core.measurement
+
+
 import cellprofiler.modules.calculatestatistics
 import cellprofiler_core.object
 import cellprofiler_core.pipeline
+import cellprofiler_core.preferences
 import cellprofiler_core.setting
 import cellprofiler_core.workspace
+
+import tests.modules
 
 INPUT_OBJECTS = "my_object"
 TEST_FTR = "my_measurement"
@@ -18,7 +23,8 @@ FIGURE_NAME = "figname"
 
 
 def test_load_v2():
-    with open("./tests/resources/modules/calculatestatistics/v2.pipeline", "r") as fd:
+    path = tests.modules.get_test_resources_directory("calculatestatistics/v2.pipeline")
+    with open(path, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -40,7 +46,10 @@ def test_load_v2():
     assert not dv.log_transform
     assert dv.wants_save_figure
     assert dv.figure_name == "DoseResponsePlot"
-    assert dv.pathname.dir_choice == cellprofiler_core.preferences.DEFAULT_OUTPUT_FOLDER_NAME
+    assert (
+        dv.pathname.dir_choice
+        == cellprofiler_core.preferences.DEFAULT_OUTPUT_FOLDER_NAME
+    )
     assert dv.pathname.custom_path == "Test"
 
 
@@ -316,7 +325,7 @@ def test_load_v2():
 #         measurements = measurements['m']
 #         image_set_list = cpi.ImageSetList()
 #         image_set = image_set_list.get_image_set(0)
-#         m = cpmeas.Measurements()
+#         m = cpmeas.cellprofiler_core.measurement.Measurements()
 #         doses = [0 ,0 ,1 ,2 ,3 ,4 ,5 ,6 ,7 ,8 ,9 ,10,
 #                  0 ,0 ,1 ,2 ,3 ,4 ,5 ,6 ,7 ,8 ,9 ,10,
 #                  0 ,0 ,1 ,2 ,3 ,4 ,5 ,6 ,7 ,8 ,9 ,10,
@@ -403,7 +412,7 @@ def make_workspace(mdict, controls_measurement, dose_measurements=[]):
             else:
                 assert nimages == len(odict[feature])
             if (
-                object_name == cellprofiler_core.measurement.IMAGE
+                object_name == "Image"
                 and feature in dose_measurements
             ):
                 if len(module.dose_values) > 1:
@@ -415,7 +424,12 @@ def make_workspace(mdict, controls_measurement, dose_measurements=[]):
     for i in range(nimages):
         image_set = image_set_list.get_image_set(i)
     workspace = cellprofiler_core.workspace.Workspace(
-        pipeline, module, image_set, cellprofiler_core.object.ObjectSet(), m, image_set_list
+        pipeline,
+        module,
+        image_set,
+        cellprofiler_core.object.ObjectSet(),
+        m,
+        image_set_list,
     )
     return workspace, module
 
@@ -427,7 +441,7 @@ def test_NAN():
     z-factors are NAN too.
     """
     mdict = {
-        cellprofiler_core.measurement.IMAGE: {
+        "Image": {
             "Metadata_Controls": [1, 0, -1],
             "Metadata_Doses": [0, 0.5, 1],
         },
@@ -442,7 +456,7 @@ def test_NAN():
     workspace, module = make_workspace(mdict, "Metadata_Controls", ["Metadata_Doses"])
     module.post_run(workspace)
     m = workspace.measurements
-    assert isinstance(m, cellprofiler_core.measurement.Measurements)
+    assert isinstance(m,cellprofiler_core.measurement.Measurements)
     for category in ("Zfactor", "OneTailedZfactor", "Vfactor"):
         feature = "_".join((category, INPUT_OBJECTS, TEST_FTR))
         value = m.get_experiment_measurement(feature)
@@ -454,7 +468,7 @@ def test_make_path():
     # If the figure directory doesn't exist, it should be created
     #
     mdict = {
-        cellprofiler_core.measurement.IMAGE: {
+        "Image": {
             "Metadata_Controls": [1, 0, -1],
             "Metadata_Doses": [0, 0.5, 1],
         },
@@ -477,7 +491,9 @@ def test_make_path():
     try:
         dose_group = module.dose_values[0]
         dose_group.wants_save_figure.value = True
-        dose_group.pathname.dir_choice = cellprofiler_core.setting.ABSOLUTE_FOLDER_NAME
+        dose_group.pathname.dir_choice = (
+            cellprofiler_core.preferences.ABSOLUTE_FOLDER_NAME
+        )
         dose_group.pathname.custom_path = my_subdir
         dose_group.figure_name.value = FIGURE_NAME
         module.post_run(workspace)

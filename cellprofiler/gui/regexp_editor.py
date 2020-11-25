@@ -39,7 +39,10 @@ RE_FILENAME_GUESSES = [
     # GE InCell Analyzer
     r"^(?P<Row>[A-H]*) - (?P<Column>[0-9]*)\(fld (?P<Site>[0-9]*) wv (?P<Wavelength>.*) - (?P<Filter>.*)\)",
     # Phenix
-    r"^r(?P<WellRow>\d{2})c(?P<WellColumn>\d{2})f(?P<Site>\d{2})p\d{2}-ch(?P<ChannelNumber>\d)"
+    r"^r(?P<WellRow>\d{2})c(?P<WellColumn>\d{2})f(?P<Site>\d{2})p\d{2}-ch(?P<ChannelNumber>\d)",
+    # GE InCell Analyzer 7.2
+    r"^(?P<Row>[A-P])_(?P<Column>[0-9]*)_f(?P<Site>[0-9]*)_c(?P<Channel>[0-9]*)_x(?P<Wavelength>.*)_m("
+    r"?P<Filter>.*)_z(?P<Slice>[0-9]*)_t(?P<Timepoint>[0-9]*)\.tif",
     # Please add more guesses below
 ]
 
@@ -55,9 +58,9 @@ RE_FOLDER_GUESSES = [
 def edit_regexp(parent, regexp, test_text, guesses=None):
     if guesses is None:
         guesses = RE_FILENAME_GUESSES
-    frame = RegexpDialog(
-        parent, size=(500, 200), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER
-    )
+    frame = RegexpDialog(parent, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+    frame.SetMinSize((300, 200))
+    frame.SetSize((600, 200))
     frame.value = regexp
     frame.test_text = test_text
     frame.guesses = guesses
@@ -73,16 +76,15 @@ class RegexpDialog(wx.Dialog):
         self.__value = "Not initialized"
         self.__test_text = "Not initialized"
         self.__guesses = RE_FILENAME_GUESSES
-        self.font = wx.SystemSettings.GetFont(wx.SYS_SYSTEM_FONT)
-        self.error_font = wx.SystemSettings.GetFont(wx.SYS_SYSTEM_FONT)
-        temp = wx.ClientDC(self)
-        temp.SetFont(self.font)
-        edit_size = temp.GetTextExtent("                                        ")
-        temp.Destroy()
+        font = wx.Font(
+            10, wx.FONTFAMILY_MODERN, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL
+        )
+        self.font = font
+        self.error_font = font
 
         sizer = wx.BoxSizer(wx.VERTICAL)
         hsizer = wx.BoxSizer(wx.HORIZONTAL)
-        sizer.Add(hsizer, 0, wx.GROW | wx.ALIGN_CENTER_VERTICAL | wx.ALL, 5)
+        sizer.Add(hsizer, 0, wx.GROW | wx.ALL, 5)
         hsizer.Add(wx.StaticText(self, label="Regex:"), 0, wx.ALIGN_CENTER | wx.ALL, 5)
 
         self.regexp_display = wx.stc.StyledTextCtrl(self, -1, style=wx.BORDER_SIMPLE)
@@ -129,7 +131,7 @@ class RegexpDialog(wx.Dialog):
         self.test_text_ctl = wx.TextCtrl(self, value=self.__test_text)
         self.test_text_ctl.Font = self.font
         hsizer.Add(self.test_text_ctl, 1, wx.ALIGN_CENTER | wx.ALL, 5)
-        sizer.Add(hsizer, 0, wx.GROW | wx.ALIGN_CENTER_VERTICAL | wx.ALL, 5)
+        sizer.Add(hsizer, 0, wx.GROW | wx.ALL, 5)
 
         style = wx.NO_BORDER
         self.test_display = wx.stc.StyledTextCtrl(self, -1, style=style)
@@ -149,26 +151,27 @@ class RegexpDialog(wx.Dialog):
         self.test_display.StyleSetFont(STYLE_ERROR, self.error_font)
         self.test_display.StyleSetForeground(STYLE_ERROR, wx.Colour(255, 0, 0, 255))
         self.test_display.Text = self.__test_text
-        self.test_display.ReadOnly = True
+        self.test_display.SetReadOnly(True)
         self.test_display.SetUseVerticalScrollBar(0)
         self.test_display.SetUseHorizontalScrollBar(0)
         self.test_display.SetMarginWidth(wx.stc.STC_MARGIN_NUMBER, 0)
         self.test_display.SetMarginWidth(wx.stc.STC_MARGIN_SYMBOL, 0)
         text_extent = self.test_display.GetFullTextExtent(self.__test_text)
-        self.test_display.SetSizeHints(100, text_extent[1], maxH=text_extent[1])
+        self.test_display.SetSizeHints(100, text_extent[1] + 3, maxH=text_extent[1] + 3)
+        self.test_display.Enable(False)
         sizer.Add(self.test_display, 0, wx.EXPAND | wx.ALL, 5)
 
         line = wx.StaticLine(self, -1, size=(20, -1), style=wx.LI_HORIZONTAL)
-        sizer.Add(line, 0, wx.GROW | wx.ALIGN_CENTER_VERTICAL | wx.RIGHT | wx.LEFT, 5)
+        sizer.Add(line, 0, wx.GROW | wx.RIGHT | wx.LEFT, 5)
 
         hsizer = wx.StdDialogButtonSizer()
         guess_button = wx.Button(self, label="Guess")
-        hsizer.Add(guess_button, 0, wx.ALIGN_RIGHT)
+        hsizer.Add(guess_button, 0)
         ok_button = wx.Button(self, label="Submit")
         ok_button.SetDefault()
-        hsizer.Add(ok_button, 0, wx.ALIGN_RIGHT | wx.LEFT, 5)
+        hsizer.Add(ok_button, 0, wx.LEFT, 5)
         cancel_button = wx.Button(self, label="Cancel")
-        hsizer.Add(cancel_button, 0, wx.ALIGN_RIGHT | wx.LEFT, 5)
+        hsizer.Add(cancel_button, 0, wx.LEFT, 5)
         hsizer.Realize()
         sizer.Add(hsizer, 0, wx.ALIGN_RIGHT | wx.ALL, 5)
 
@@ -244,14 +247,14 @@ class RegexpDialog(wx.Dialog):
     def refresh_regexp(self):
         state = RegexpState()
         regexp_text = self.__value
-        self.regexp_display.StartStyling(0, 0xFF)
+        self.regexp_display.StartStyling(0)
         self.regexp_display.SetStyling(len(regexp_text), STYLE_ERROR)
         try:
             parse(regexp_text, state)
         except:
             pass
         for i in range(state.position):
-            self.regexp_display.StartStyling(i, 0xFF)
+            self.regexp_display.StartStyling(i)
             self.regexp_display.SetStyling(1, state.token_labels[i])
         pos = self.regexp_display.CurrentPos
         if state.open_expression_start is not None:
@@ -267,13 +270,13 @@ class RegexpDialog(wx.Dialog):
             )
 
     def refresh_text(self):
-        self.test_display.ReadOnly = False
+        self.test_display.SetReadOnly(False)
         self.test_display.Text = self.__test_text
         try:
             parse(self.__value, RegexpState())
         except ValueError as e:
             self.test_display.Text = e.args[0]
-            self.test_display.StartStyling(0, 0xFF)
+            self.test_display.StartStyling(0)
             self.test_display.SetStyling(len(self.test_display.Text), STYLE_ERROR)
             return
         try:
@@ -282,21 +285,17 @@ class RegexpDialog(wx.Dialog):
                 for i in range(len(match.groups()) + 1):
                     start = match.start(i)
                     end = match.end(i)
-                    self.test_display.StartStyling(start, 0xFF)
+                    self.test_display.StartStyling(start)
                     self.test_display.SetStyling(end - start, i + 1)
             else:
                 self.test_display.Text = "Regular expression does not match"
-                self.test_display.StartStyling(0, 0xFF)
+                self.test_display.StartStyling(0)
                 self.test_display.SetStyling(len(self.test_display.Text), STYLE_ERROR)
         except:
             self.test_display.Text = "Regular expression is not valid"
-            self.test_display.StartStyling(0, 0xFF)
+            self.test_display.StartStyling(0)
             self.test_display.SetStyling(len(self.test_display.GetText()), STYLE_ERROR)
         self.test_display.SetReadOnly(True)
-
-    def refresh_bitmap(self):
-        self.feedback.SetBitmap(self.get_bitmap())
-        self.Refresh()
 
     def get_value(self):
         return self.__value

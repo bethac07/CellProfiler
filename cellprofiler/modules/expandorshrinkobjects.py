@@ -1,4 +1,13 @@
-# coding=utf-8
+from cellprofiler_core.module import Module
+from cellprofiler_core.setting import Binary
+from cellprofiler_core.setting.choice import Choice
+from cellprofiler_core.setting.subscriber import LabelSubscriber
+from cellprofiler_core.setting.text import LabelName, Integer
+from cellprofiler_core.utilities.core.module.identify import (
+    add_object_location_measurements,
+    add_object_count_measurements,
+    get_object_measurement_columns,
+)
 
 from cellprofiler.modules import _help
 
@@ -51,13 +60,7 @@ import centrosome.cpmorphology
 import numpy
 import scipy.ndimage
 
-import cellprofiler_core.image
-import cellprofiler_core.measurement
-import cellprofiler_core.module
-import cellprofiler_core.modules.identify
 import cellprofiler_core.object
-import cellprofiler_core.setting
-
 
 O_SHRINK_INF = "Shrink objects to a point"
 O_EXPAND_INF = "Expand objects until touching"
@@ -77,25 +80,25 @@ O_ALL = [
 ]
 
 
-class ExpandOrShrinkObjects(cellprofiler_core.module.Module):
+class ExpandOrShrinkObjects(Module):
     module_name = "ExpandOrShrinkObjects"
     category = "Object Processing"
     variable_revision_number = 2
 
     def create_settings(self):
-        self.object_name = cellprofiler_core.setting.ObjectNameSubscriber(
+        self.object_name = LabelSubscriber(
             "Select the input objects",
             "None",
             doc="Select the objects that you want to expand or shrink.",
         )
 
-        self.output_object_name = cellprofiler_core.setting.ObjectNameProvider(
+        self.output_object_name = LabelName(
             "Name the output objects",
             "ShrunkenNuclei",
             doc="Enter a name for the resulting objects.",
         )
 
-        self.operation = cellprofiler_core.setting.Choice(
+        self.operation = Choice(
             "Select the operation",
             O_ALL,
             doc="""\
@@ -141,7 +144,7 @@ Choose the operation that you want to perform:
             ),
         )
 
-        self.iterations = cellprofiler_core.setting.Integer(
+        self.iterations = Integer(
             "Number of pixels by which to expand or shrink",
             1,
             minval=1,
@@ -154,7 +157,7 @@ Specify the number of pixels to add or remove from object borders.
             ),
         )
 
-        self.wants_fill_holes = cellprofiler_core.setting.Binary(
+        self.wants_fill_holes = Binary(
             "Fill holes in objects so that all objects shrink to a single point?",
             False,
             doc="""\
@@ -200,13 +203,17 @@ order to keep from breaking up the object or breaking the hole.
 
         output_objects.segmented = self.do_labels(input_objects.segmented)
 
+        # If we're shrinking objects we treat objects from the final segmentation as truth when generating
+        # the unedited segmentations. This prevents edited/hole-filled objects from ending up with slightly
+        # different centers (which would impact other modules).
         if input_objects.has_small_removed_segmented and self.operation not in (
             O_EXPAND,
             O_EXPAND_INF,
             O_DIVIDE,
         ):
-            output_objects.small_removed_segmented = self.do_labels(
-                input_objects.small_removed_segmented
+            shrunk_objects = self.do_labels(input_objects.small_removed_segmented)
+            output_objects.small_removed_segmented = numpy.where(
+                input_objects.segmented > 0, output_objects.segmented, shrunk_objects
             )
 
         if input_objects.has_unedited_segmented and self.operation not in (
@@ -214,20 +221,20 @@ order to keep from breaking up the object or breaking the hole.
             O_EXPAND_INF,
             O_DIVIDE,
         ):
-
-            output_objects.unedited_segmented = self.do_labels(
-                input_objects.unedited_segmented
+            shrunk_objects = self.do_labels(input_objects.unedited_segmented)
+            output_objects.unedited_segmented = numpy.where(
+                input_objects.segmented > 0, output_objects.segmented, shrunk_objects
             )
 
         workspace.object_set.add_objects(output_objects, self.output_object_name.value)
 
-        cellprofiler_core.modules.identify.add_object_count_measurements(
+        add_object_count_measurements(
             workspace.measurements,
             self.output_object_name.value,
             numpy.max(output_objects.segmented),
         )
 
-        cellprofiler_core.modules.identify.add_object_location_measurements(
+        add_object_location_measurements(
             workspace.measurements,
             self.output_object_name.value,
             output_objects.segmented,
@@ -244,11 +251,10 @@ order to keep from breaking up the object or breaking the hole.
         output_objects_segmented = workspace.display_data.output_objects_segmented
 
         figure.set_subplots((2, 1))
-        cmap = figure.return_cmap()
+        cmap = figure.return_cmap(numpy.max(input_objects_segmented))
 
         figure.subplot_imshow_labels(
-            0, 0, input_objects_segmented, self.object_name.value,
-            colormap=cmap,
+            0, 0, input_objects_segmented, self.object_name.value, colormap=cmap,
         )
 
         figure.subplot_imshow_labels(
@@ -257,7 +263,7 @@ order to keep from breaking up the object or breaking the hole.
             output_objects_segmented,
             self.output_object_name.value,
             sharexy=figure.subplot(0, 0),
-            colormap=cmap
+            colormap=cmap,
         )
 
     def do_labels(self, labels):
@@ -318,9 +324,7 @@ order to keep from breaking up the object or breaking the hole.
 
         raise NotImplementedError("Unsupported operation: %s" % self.operation.value)
 
-    def upgrade_settings(
-        self, setting_values, variable_revision_number, module_name
-    ):
+    def upgrade_settings(self, setting_values, variable_revision_number, module_name):
         if variable_revision_number == 1:
             setting_values = setting_values[:-2]
 
@@ -330,9 +334,7 @@ order to keep from breaking up the object or breaking the hole.
 
     def get_measurement_columns(self, pipeline):
         """Return column definitions for measurements made by this module"""
-        columns = cellprofiler_core.modules.identify.get_object_measurement_columns(
-            self.output_object_name.value
-        )
+        columns = get_object_measurement_columns(self.output_object_name.value)
         return columns
 
     def get_categories(self, pipeline, object_name):
@@ -341,7 +343,7 @@ order to keep from breaking up the object or breaking the hole.
         object_name - return measurements made on this object (or 'Image' for image measurements)
         """
         categories = []
-        if object_name == cellprofiler_core.measurement.IMAGE:
+        if object_name == "Image":
             categories += ["Count"]
         if object_name == self.output_object_name:
             categories += ("Location", "Number")
@@ -355,7 +357,7 @@ order to keep from breaking up the object or breaking the hole.
         """
         result = []
 
-        if object_name == cellprofiler_core.measurement.IMAGE:
+        if object_name == "Image":
             if category == "Count":
                 result += [self.output_object_name.value]
         if object_name == self.output_object_name:

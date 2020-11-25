@@ -3,7 +3,6 @@
 """
 
 import codecs
-import inspect
 import logging
 import os
 import pdb
@@ -14,35 +13,31 @@ import wx.adv
 import wx.html
 import wx.lib.inspection
 import wx.lib.scrolledpanel
+from cellprofiler_core.preferences import EXT_PIPELINE
+from cellprofiler_core.preferences import EXT_PROJECT
+from cellprofiler_core.preferences import get_show_sampling
+from cellprofiler_core.preferences import get_startup_blurb
+from cellprofiler_core.utilities.core.modules import instantiate_module
 
 import cellprofiler
 import cellprofiler.gui
-import cellprofiler.gui.datatoolframe
-import cellprofiler.gui.dialog
-import cellprofiler.gui.figure
-import cellprofiler.gui.help.content
-import cellprofiler.gui.help.menu
-import cellprofiler.gui.html
-import cellprofiler.gui.html.htmlwindow
-import cellprofiler.gui.html.utils
-import cellprofiler.gui.imagesetctrl
-import cellprofiler.gui.menu
-import cellprofiler.gui.moduleview
-import cellprofiler.gui.pathlist
-import cellprofiler.gui.pipeline
-import cellprofiler.gui.pipelinecontroller
-import cellprofiler.gui.pipelinelistview
-import cellprofiler.gui.preferencesdlg
-import cellprofiler.gui.preferencesview
-import cellprofiler.gui.welcome
-import cellprofiler.gui.workspace
-import cellprofiler.icons
-import cellprofiler_core.modules
-import cellprofiler_core.pipeline
-import cellprofiler_core.preferences
-import cellprofiler_core.workspace
-
-logger = logging.getLogger(__name__)
+import cellprofiler.gui.utilities.icon
+from ._welcome_frame import WelcomeFrame
+from ._workspace_model import Workspace
+from .utilities.figure import close_all
+from .help.content import read_content
+from .help.menu import Menu
+from .html.htmlwindow import HtmlClickableWindow
+from .html.utils import rst_to_html_fragment
+from .imagesetctrl import ImageSetCtrl
+from .module_view import ModuleView
+from .pathlist import PathListCtrl
+from .pipeline import Pipeline
+from .pipelinecontroller import PipelineController
+from .pipelinelistview import PipelineListView
+from .preferences_dialog._preferences_dialog import PreferencesDialog
+from .preferences_view import PreferencesView
+from .utilities.module_view import stop_validation_queue_thread
 
 HELP_ON_FILE_LIST = """\
 The *File List* panel displays the image files that are managed by the
@@ -91,7 +86,6 @@ ID_FILE_EXPORT_PIPELINE_NOTES = wx.NewId()
 ID_FILE_IMPORT_FILE_LIST = wx.NewId()
 ID_FILE_ANALYZE_IMAGES = wx.NewId()
 ID_FILE_STOP_ANALYSIS = wx.NewId()
-ID_FILE_RESTART = wx.NewId()
 ID_FILE_PRINT = wx.NewId()
 ID_FILE_PLATEVIEWER = wx.NewId()
 ID_FILE_NEW_CP = wx.NewId()
@@ -113,6 +107,7 @@ ID_EDIT_REMOVE_FROM_FILE_LIST = wx.NewId()
 ID_EDIT_SHOW_FILE_LIST_IMAGE = wx.NewId()
 ID_EDIT_ENABLE_MODULE = wx.NewId()
 ID_EDIT_GO_TO_MODULE = wx.NewId()
+ID_FIND_USAGES = wx.NewId()
 
 ID_OPTIONS_PREFERENCES = wx.ID_PREFERENCES
 ID_CHECK_NEW_VERSION = wx.NewId()
@@ -129,6 +124,8 @@ ID_DEBUG_RELOAD = wx.NewId()
 ID_DEBUG_PDB = wx.NewId()
 ID_DEBUG_RUN_FROM_THIS_MODULE = wx.NewId()
 ID_DEBUG_STEP_FROM_THIS_MODULE = wx.NewId()
+ID_DEBUG_HELP = wx.NewId()
+ID_DEBUG_VIEW_WORKSPACE = wx.NewId()
 
 # ~*~
 ID_SAMPLE_INIT = wx.NewId()
@@ -144,12 +141,10 @@ ID_WINDOW_ALL = (
     ID_WINDOW_HIDE_ALL_WINDOWS,
 )
 
-window_ids = []
+WINDOW_IDS = []
 
 ID_HELP_MODULE = wx.NewId()
-ID_HELP_DATATOOLS = wx.NewId()
 ID_HELP_SOURCE_CODE = wx.NewId()
-ID_HELP_ABOUT = wx.ID_ABOUT
 
 
 class CPFrame(wx.Frame):
@@ -159,10 +154,8 @@ class CPFrame(wx.Frame):
         """
         kwds["style"] = wx.DEFAULT_FRAME_STYLE
 
-        self.__pipeline = cellprofiler.gui.pipeline.Pipeline()
-        self.__workspace = cellprofiler.gui.workspace.Workspace(
-            self.__pipeline, None, None, None, None, None
-        )
+        self.__pipeline = Pipeline()
+        self.__workspace = Workspace(self.__pipeline, None, None, None, None, None)
 
         super(CPFrame, self).__init__(*args, **kwds)
 
@@ -257,9 +250,7 @@ class CPFrame(wx.Frame):
         #
         # Path list control
         #
-        self.__path_list_ctrl = cellprofiler.gui.pathlist.PathListCtrl(
-            self.__path_list_sash
-        )
+        self.__path_list_ctrl = PathListCtrl(self.__path_list_sash)
         self.__path_list_ctrl.SetBackgroundColour(wx.WHITE)
         sizer.Add(self.__path_list_ctrl, 1, wx.EXPAND | wx.ALL)
         #
@@ -323,14 +314,12 @@ class CPFrame(wx.Frame):
         self.__imageset_panel.SetSizer(wx.BoxSizer())
         self.__imageset_panel.SetAutoLayout(True)
 
-        self.__imageset_ctrl = cellprofiler.gui.imagesetctrl.ImageSetCtrl(
+        self.__imageset_ctrl = ImageSetCtrl(
             self.__workspace, self.__imageset_panel, read_only=True
         )
 
         self.__imageset_panel.GetSizer().Add(self.__imageset_ctrl, 1, wx.EXPAND)
-        self.__grid_ctrl = cellprofiler.gui.moduleview.ModuleView.CornerButtonGrid(
-            self.__imageset_panel
-        )
+        self.__grid_ctrl = ModuleView.CornerButtonGrid(self.__imageset_panel)
         self.__imageset_panel.GetSizer().Add(self.__grid_ctrl, 1, wx.EXPAND)
         self.__right_win.GetSizer().AddSpacer(4)
 
@@ -357,11 +346,11 @@ class CPFrame(wx.Frame):
         self.__set_properties()
         self.__set_icon()
         self.__do_layout()
-        self.startup_blurb_frame = cellprofiler.gui.welcome.Welcome(self)
+        self.startup_blurb_frame = WelcomeFrame(self)
         self.__error_listeners = []
         self.Bind(wx.EVT_CLOSE, self.OnClose)
         self.SetAutoLayout(True)
-        if cellprofiler_core.preferences.get_startup_blurb():
+        if get_startup_blurb():
             self.show_welcome_screen(True)
         self.show_module_ui(True)
 
@@ -521,22 +510,32 @@ class CPFrame(wx.Frame):
         try:
             self.__workspace.measurements.flush()
         except:
-            logger.warn(
+            logging.warning(
                 "Failed to flush temporary measurements file during close",
                 exc_info=True,
             )
         try:
+            from bioformats.formatreader import clear_image_reader_cache
+
+            clear_image_reader_cache()
+        except:
+            logging.warning(
+                "Failed to clear bioformats reader cache during close", exc_info=True,
+            )
+        try:
             self.__preferences_view.close()
         except:
-            logger.warn("Failed during close", exc_info=True)
+            logging.warning("Failed during close", exc_info=True)
+
         try:
             self.pipeline_controller.on_close()
         except:
-            logger.warn("Failed to close the pipeline controller", exc_info=True)
+            logging.warning("Failed to close the pipeline controller", exc_info=True)
+
         try:
-            cellprofiler.gui.moduleview.stop_validation_queue_thread()
+            stop_validation_queue_thread()
         except:
-            logger.warn("Failed to stop pipeline validation thread", exc_info=True)
+            logging.warning("Failed to stop pipeline validation thread", exc_info=True)
         wx.GetApp().ExitMainLoop()
 
     def __set_properties(self):
@@ -578,9 +577,7 @@ class CPFrame(wx.Frame):
         self.__menu_file.Append(
             wx.ID_OPEN,
             "Open Project...\tctrl+O",
-            helpString="Open a project from a .{} project file".format(
-                cellprofiler_core.preferences.EXT_PROJECT
-            ),
+            helpString="Open a project from a .{} project file".format(EXT_PROJECT),
         )
         self.recent_workspace_files = wx.Menu()
         self.__menu_file.AppendSubMenu(self.recent_workspace_files, "Open Recent")
@@ -603,8 +600,7 @@ class CPFrame(wx.Frame):
         submenu.Append(
             ID_FILE_LOAD_PIPELINE,
             "Pipeline from File...",
-            "Import a pipeline into the project from a .%s file"
-            % cellprofiler_core.preferences.EXT_PIPELINE,
+            "Import a pipeline into the project from a .%s file" % EXT_PIPELINE,
         )
         submenu.Append(
             ID_FILE_URL_LOAD_PIPELINE,
@@ -622,8 +618,7 @@ class CPFrame(wx.Frame):
         submenu.Append(
             ID_FILE_SAVE_PIPELINE,
             "Pipeline...\tctrl+P",
-            "Save the project's pipeline to a .%s file"
-            % cellprofiler_core.preferences.EXT_PIPELINE,
+            "Save the project's pipeline to a .%s file" % EXT_PIPELINE,
         )
         submenu.Append(
             ID_FILE_EXPORT_IMAGE_SETS,
@@ -654,11 +649,6 @@ class CPFrame(wx.Frame):
         self.__menu_file.Append(
             ID_FILE_STOP_ANALYSIS, "Stop Analysis", "Stop running the pipeline"
         )
-        self.__menu_file.Append(
-            ID_FILE_RESTART,
-            "Resume Pipeline",
-            "Resume a pipeline from a saved measurements file.",
-        )
         self.__menu_file.AppendSeparator()
         if sys.platform == "darwin":
             self.__menu_file.Append(ID_FILE_NEW_CP, "Open A New CP Window")
@@ -671,7 +661,7 @@ class CPFrame(wx.Frame):
 
         self.recent_files = wx.Menu()
         self.recent_pipeline_files = wx.Menu()
-        self.__menu_file.Append(ID_FILE_EXIT, "E&xit\tctrl+Q", "Quit the application")
+        self.__menu_file.Append(ID_FILE_EXIT, "Q&uit\tctrl+Q", "Quit the application")
 
         self.menu_edit = wx.Menu()
         self.menu_edit.Append(wx.ID_UNDO, helpString="Undo last action")
@@ -697,7 +687,9 @@ class CPFrame(wx.Frame):
             ID_EDIT_DELETE, "&Delete Selected Modules", "Delete selected modules"
         )
         self.menu_edit.Append(
-            ID_EDIT_DUPLICATE, "Duplicate Selected Modules", "Duplicate selected modules"
+            ID_EDIT_DUPLICATE,
+            "Duplicate Selected Modules",
+            "Duplicate selected modules",
         )
         self.menu_edit.Append(
             ID_EDIT_ENABLE_MODULE,
@@ -785,6 +777,11 @@ class CPFrame(wx.Frame):
             "Choose Image Group",
             "Choose which image set group to process in test-mode",
         )
+
+        self.__menu_debug.Append(
+            ID_DEBUG_VIEW_WORKSPACE, "View workspace", "View the current workspace",
+        )
+
         if not hasattr(sys, "frozen") or os.getenv("CELLPROFILER_DEBUG"):
             self.__menu_debug.Append(ID_DEBUG_RELOAD, "Reload Modules' Source")
             self.__menu_debug.Append(ID_DEBUG_PDB, "Break Into Debugger")
@@ -793,6 +790,8 @@ class CPFrame(wx.Frame):
             #
             if os.environ.get("USERNAME", "").lower() == "leek":
                 self.__menu_debug.Append(ID_FILE_WIDGET_INSPECTOR, "Widget inspector")
+
+        self.__menu_debug.Append(ID_DEBUG_HELP, "Pipeline Testing Help")
         self.__menu_debug.Enable(ID_DEBUG_STEP, False)
         self.__menu_debug.Enable(ID_DEBUG_NEXT_IMAGE_SET, False)
         self.__menu_debug.Enable(ID_DEBUG_NEXT_GROUP, False)
@@ -819,13 +818,22 @@ class CPFrame(wx.Frame):
         )
         self.__menu_window.AppendSeparator()
 
-        self.__menu_help = cellprofiler.gui.help.menu.Menu(self)
+        self.__menu_window.Append(
+            ID_FILE_PLATEVIEWER,
+            "Show Plate Viewer",
+            "Open the plate viewer to inspect the images in the current workspace",
+        )
+
+        if sys.platform == "win32":
+            self.__menu_window.AppendSeparator()
+
+        self.__menu_help = Menu(self)
 
         self.__menu_bar = wx.MenuBar()
         self.__menu_bar.Append(self.__menu_file, "&File")
         self.__menu_bar.Append(self.menu_edit, "&Edit")
         self.__menu_bar.Append(self.__menu_debug, "&Test")
-        if cellprofiler_core.preferences.get_show_sampling():
+        if get_show_sampling():
             self.__menu_sample = wx.Menu()
             self.__menu_sample.Append(
                 ID_SAMPLE_INIT,
@@ -833,8 +841,7 @@ class CPFrame(wx.Frame):
                 "Initialize sampling up to current module",
             )
             self.__menu_bar.Append(self.__menu_sample, "&Sample")
-        self.__menu_bar.Append(self.data_tools_menu(), "&Data Tools")
-        self.__menu_bar.Append(self.__menu_window, "&Window")
+        self.__menu_bar.Append(self.__menu_window, "&Windows")
         if wx.VERSION <= (2, 8, 10, 1, "") and wx.Platform == "__WXMAC__":
             self.__menu_bar.Append(self.__menu_help, "CellProfiler Help")
         else:
@@ -864,10 +871,10 @@ class CPFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.__on_help_module, id=ID_HELP_MODULE)
         self.Bind(wx.EVT_BUTTON, self.__on_help_module, id=ID_HELP_MODULE)
 
-        self.Bind(wx.EVT_MENU, self.about, id=ID_HELP_ABOUT)
         self.Bind(wx.EVT_MENU, self.__on_preferences, id=ID_OPTIONS_PREFERENCES)
         self.Bind(wx.EVT_MENU, self.__on_close_all, id=ID_WINDOW_CLOSE_ALL)
         self.Bind(wx.EVT_MENU, self.__debug_pdb, id=ID_DEBUG_PDB)
+        self.Bind(wx.EVT_MENU, self.__on_debug_help, id=ID_DEBUG_HELP)
 
         accelerator_table = wx.AcceleratorTable(
             [
@@ -890,90 +897,6 @@ class CPFrame(wx.Frame):
         )
         self.SetAcceleratorTable(accelerator_table)
         self.enable_launch_commands()
-
-    def data_tools_help(self):
-        """Create a help menu for the data tools"""
-        if not hasattr(self, "__data_tools_help_menu"):
-            self.__menu_data_tools_help_menu = wx.Menu()
-
-            def on_plate_viewer_help(event):
-                import cellprofiler.gui.htmldialog
-
-                dlg = cellprofiler.gui.htmldialog.HTMLDialog(
-                    self,
-                    "Help on plate viewer",
-                    cellprofiler.gui.help.content.read_content(
-                        "output_plateviewer.rst"
-                    ),
-                )
-                dlg.Show()
-
-            new_id = wx.NewId()
-            self.__menu_data_tools_help_menu.Append(new_id, "Plate viewer")
-            self.Bind(wx.EVT_MENU, on_plate_viewer_help, id=new_id)
-
-            for data_tool_name in cellprofiler_core.modules.get_data_tool_names():
-                new_id = wx.NewId()
-                self.__menu_data_tools_help_menu.Append(new_id, data_tool_name)
-
-                def on_data_tool_help(event, data_tool_name=data_tool_name):
-                    self.__on_data_tool_help(event, data_tool_name)
-
-                self.Bind(wx.EVT_MENU, on_data_tool_help, id=new_id)
-        return self.__menu_data_tools_help_menu
-
-    def data_tools_menu(self):
-        """Create a menu of data tools"""
-
-        if not hasattr(self, "__data_tools_menu"):
-            self.__data_tools_menu = wx.Menu()
-
-            def on_data_tool_overview(event):
-                import cellprofiler.gui.html.utils
-                import cellprofiler.gui.htmldialog
-                import cellprofiler.gui.help.content
-
-                dlg = cellprofiler.gui.htmldialog.HTMLDialog(
-                    self,
-                    "Data Tool Overview",
-                    cellprofiler.gui.html.utils.rst_to_html_fragment(
-                        cellprofiler.gui.help.content.read_content(
-                            "navigation_data_tools_menu.rst"
-                        )
-                    ),
-                )
-                dlg.Show()
-
-            new_id = wx.NewId()
-            self.__data_tools_menu.Append(
-                new_id, "Data Tool Overview", "Overview of the Data Tools"
-            )
-            self.Bind(wx.EVT_MENU, on_data_tool_overview, id=new_id)
-
-            self.__data_tools_menu.AppendSeparator()
-
-            self.__data_tools_menu.Append(
-                ID_FILE_PLATEVIEWER,
-                "Plate Viewer",
-                "Open the plate viewer to inspect the images in the current workspace",
-            )
-
-            self.__data_tools_menu.AppendSeparator()
-
-            for data_tool_name in cellprofiler_core.modules.get_data_tool_names():
-                new_id = wx.NewId()
-                self.__data_tools_menu.Append(new_id, data_tool_name)
-
-                def on_data_tool(event, data_tool_name=data_tool_name):
-                    self.__on_data_tool(event, data_tool_name)
-
-                self.Bind(wx.EVT_MENU, on_data_tool, id=new_id)
-
-            self.__data_tools_menu.AppendSeparator()
-
-            self.__data_tools_menu.AppendSubMenu(self.data_tools_help(), "&Help")
-
-        return self.__data_tools_menu
 
     #########################################################
     #
@@ -1055,16 +978,16 @@ class CPFrame(wx.Frame):
         ID_DEBUG_CHOOSE_IMAGE_SET,
         ID_DEBUG_CHOOSE_RANDOM_IMAGE_SET,
         ID_DEBUG_CHOOSE_RANDOM_IMAGE_GROUP,
+        ID_DEBUG_VIEW_WORKSPACE,
     )
 
     def enable_debug_commands(self):
         """Enable or disable the debug commands (like ID_DEBUG_STEP)"""
         startstop = self.__menu_debug.FindItemById(ID_DEBUG_TOGGLE)
         self.__menu_file.Enable(ID_FILE_ANALYZE_IMAGES, False)
-        self.__menu_file.Enable(ID_FILE_RESTART, False)
 
         assert isinstance(startstop, wx.MenuItem)
-        startstop.SetText("&Exit Test Mode\tF5")
+        startstop.SetItemLabel("&Exit Test Mode\tF5")
         startstop.SetHelp("Stop testing your pipeline")
         for cmd in self.debug_commands:
             self.__menu_debug.Enable(cmd, True)
@@ -1072,12 +995,11 @@ class CPFrame(wx.Frame):
     def enable_launch_commands(self):
         """Enable commands to start analysis or test mode"""
         startstop = self.__menu_debug.FindItemById(ID_DEBUG_TOGGLE)
-        startstop.Text = "&Start Test Mode\tF5"
-        startstop.Help = "Start testing your pipeline"
+        startstop.SetItemLabel("&Start Test Mode\tF5")
+        startstop.SetHelp("Start testing your pipeline")
         for cmd in self.debug_commands:
             self.__menu_debug.Enable(cmd, False)
         self.__menu_file.Enable(ID_FILE_ANALYZE_IMAGES, True)
-        self.__menu_file.Enable(ID_FILE_RESTART, True)
         self.__menu_debug.Enable(ID_DEBUG_TOGGLE, True)
 
         self.__menu_file.Enable(ID_FILE_STOP_ANALYSIS, False)
@@ -1085,7 +1007,6 @@ class CPFrame(wx.Frame):
     def enable_analysis_commands(self):
         """Enable commands to pause or stop analysis"""
         self.__menu_file.Enable(ID_FILE_ANALYZE_IMAGES, False)
-        self.__menu_file.Enable(ID_FILE_RESTART, False)
         self.__menu_debug.Enable(ID_DEBUG_TOGGLE, False)
 
         self.__menu_file.Enable(ID_FILE_STOP_ANALYSIS, True)
@@ -1099,16 +1020,17 @@ class CPFrame(wx.Frame):
 
     @staticmethod
     def __on_preferences(event):
-        dlg = cellprofiler.gui.preferencesdlg.PreferencesDlg()
+        dlg = PreferencesDialog()
         dlg.Show()
 
     def __on_close_all(self, event):
-        cellprofiler.gui.figure.close_all(self)
+        close_all(self)
 
     @staticmethod
     def __on_new_cp(event):
         if hasattr(sys, "frozen"):
-            os.system("open -na /Applications/CellProfiler-{}.app".format(cellprofiler.__version__))
+            app_path = sys.executable.split("/Contents")[0]
+            os.system(f"open -na {app_path}")
         else:
             os.system("python3 -m cellprofiler")
 
@@ -1116,17 +1038,18 @@ class CPFrame(wx.Frame):
         import cellprofiler.gui.htmldialog
 
         dlg = cellprofiler.gui.htmldialog.HTMLDialog(
-            self,
-            "Help on file list",
-            cellprofiler.gui.html.utils.rst_to_html_fragment(HELP_ON_FILE_LIST),
+            self, "Help on file list", rst_to_html_fragment(HELP_ON_FILE_LIST),
         )
         dlg.Show()
 
-    @staticmethod
-    def about(event):
-        info = cellprofiler.gui.dialog.AboutDialogInfo()
+    def __on_debug_help(self, event):
+        import cellprofiler.gui.htmldialog
 
-        wx.adv.AboutBox(info)
+        contents = read_content("navigation_test_menu.rst")
+        help_dialog = cellprofiler.gui.htmldialog.HTMLDialog(
+            self, "Test Mode Help", rst_to_html_fragment(contents),
+        )
+        help_dialog.Show()
 
     def __on_help_welcome(self, event):
         self.show_welcome_screen(True)
@@ -1183,7 +1106,7 @@ class CPFrame(wx.Frame):
 
         sizer = wx.BoxSizer()
         helpframe.SetSizer(sizer)
-        window = cellprofiler.gui.html.htmlwindow.HtmlClickableWindow(helpframe)
+        window = HtmlClickableWindow(helpframe)
         sizer.Add(window, 1, wx.EXPAND)
         window.AppendToPage(help_text)
 
@@ -1258,7 +1181,7 @@ class CPFrame(wx.Frame):
             ]
         )
         helpframe.SetAcceleratorTable(accelerator_table)
-        helpframe.SetIcon(cellprofiler.gui.get_cp_icon())
+        helpframe.SetIcon(cellprofiler.gui.utilities.icon.get_cp_icon())
         helpframe.Layout()
         helpframe.Show()
 
@@ -1297,10 +1220,10 @@ class CPFrame(wx.Frame):
             style=wx.FD_OPEN,
         )
         if dlg.ShowModal() == wx.ID_OK:
-            from cellprofiler_core.modules.loadimages import LoadImagesImageProvider
-            from cellprofiler.gui.figure import Figure
+            from cellprofiler_core.image import FileImage
+            from .figure import Figure
 
-            lip = LoadImagesImageProvider("dummy", "", dlg.GetPath())
+            lip = FileImage("dummy", "", dlg.GetPath())
             image = lip.provide_image(None).pixel_data
             frame = Figure(self, title=dlg.GetPath(), subplots=(1, 1))
             if image.ndim == 3:
@@ -1310,12 +1233,8 @@ class CPFrame(wx.Frame):
             frame.panel.draw()
 
     def __attach_views(self):
-        self.__pipeline_list_view = cellprofiler.gui.pipelinelistview.PipelineListView(
-            self.__module_list_panel, self
-        )
-        self.__pipeline_controller = cellprofiler.gui.pipelinecontroller.PipelineController(
-            self.__workspace, self
-        )
+        self.__pipeline_list_view = PipelineListView(self.__module_list_panel, self)
+        self.__pipeline_controller = PipelineController(self.__workspace, self)
         self.__pipeline_list_view.attach_to_pipeline(
             self.__pipeline, self.__pipeline_controller
         )
@@ -1328,7 +1247,7 @@ class CPFrame(wx.Frame):
         self.__pipeline_controller.attach_to_path_list_ctrl(
             self.__path_list_ctrl, self.__path_list_filter_checkbox
         )
-        self.__module_view = cellprofiler.gui.moduleview.ModuleView(
+        self.__module_view = ModuleView(
             self.__module_panel,
             self.__workspace,
             frame=self,
@@ -1336,7 +1255,7 @@ class CPFrame(wx.Frame):
         )
         self.__pipeline_controller.attach_to_module_view(self.__module_view)
         self.__pipeline_list_view.attach_to_module_view(self.__module_view)
-        self.__preferences_view = cellprofiler.gui.preferencesview.PreferencesView(
+        self.__preferences_view = PreferencesView(
             self.__right_win.GetSizer(),
             self.__preferences_panel,
             self.__progress_panel,
@@ -1355,7 +1274,7 @@ class CPFrame(wx.Frame):
         self.__splitter.SetMinimumPaneSize(120)
         self.__splitter.SplitVertically(self.__left_win, self.__right_win, 300)
         self.__splitter.BorderSize = 0
-        self.__splitter.SetSashSize(5)
+        self.__splitter.SetMinimumPaneSize(5)
 
         top_left_sizer = wx.BoxSizer(wx.VERTICAL)
         top_left_sizer.Add(self.__module_list_panel, 1, wx.EXPAND | wx.ALL, 1)
@@ -1371,30 +1290,10 @@ class CPFrame(wx.Frame):
         top_left_win.Layout()
 
     def __set_icon(self):
-        self.SetIcon(cellprofiler.gui.get_cp_icon())
-
-    def __on_data_tool(self, event, tool_name):
-        module = cellprofiler_core.modules.instantiate_module(tool_name)
-        args, varargs, varkw, vardef = inspect.getargspec(module.run_as_data_tool)
-        if len(args) + (0 if varargs is None else len(varargs)) == 1:
-            # Data tool doesn't need the data tool frame because it doesn't
-            # take the "workspace" argument
-            #
-            module.run_as_data_tool()
-            return
-        dlg = wx.FileDialog(
-            self,
-            "Choose data output file for %s data tool" % tool_name,
-            wildcard="Measurements file(*.mat,*.h5)|*.mat;*.h5",
-            style=(wx.FD_OPEN | wx.FD_FILE_MUST_EXIST),
-        )
-        if dlg.ShowModal() == wx.ID_OK:
-            cellprofiler.gui.datatoolframe.DataToolFrame(
-                self, module_name=tool_name, measurements_file_name=dlg.GetPath()
-            )
+        self.SetIcon(cellprofiler.gui.utilities.icon.get_cp_icon())
 
     def __on_data_tool_help(self, event, tool_name):
-        module = cellprofiler_core.modules.instantiate_module(tool_name)
+        module = instantiate_module(tool_name)
         self.do_help_module(tool_name, module.get_help())
 
     def add_error_listener(self, listener):

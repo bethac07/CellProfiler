@@ -7,12 +7,16 @@ import scipy.stats
 import cellprofiler_core.image
 import cellprofiler_core.measurement
 import cellprofiler_core.module
+from cellprofiler_core.constants.measurement import COLTYPE_FLOAT
+
+
 import cellprofiler.modules.measureobjectintensitydistribution
 import cellprofiler_core.object
 import cellprofiler_core.pipeline
 import cellprofiler_core.preferences
 import cellprofiler_core.setting
 import cellprofiler_core.workspace
+import tests.modules
 
 cellprofiler_core.preferences.set_headless()
 
@@ -34,10 +38,10 @@ def feature_frac_at_d(bin, bin_count, image_name=IMAGE_NAME):
         )
 
     return (
-            cellprofiler.modules.measureobjectintensitydistribution.M_CATEGORY
-            + "_"
-            + cellprofiler.modules.measureobjectintensitydistribution.FF_FRAC_AT_D
-            % (image_name, bin, bin_count)
+        cellprofiler.modules.measureobjectintensitydistribution.M_CATEGORY
+        + "_"
+        + cellprofiler.modules.measureobjectintensitydistribution.FF_FRAC_AT_D
+        % (image_name, bin, bin_count)
     )
 
 
@@ -53,10 +57,10 @@ def feature_mean_frac(bin, bin_count, image_name=IMAGE_NAME):
         )
 
     return (
-            cellprofiler.modules.measureobjectintensitydistribution.M_CATEGORY
-            + "_"
-            + cellprofiler.modules.measureobjectintensitydistribution.FF_MEAN_FRAC
-            % (image_name, bin, bin_count)
+        cellprofiler.modules.measureobjectintensitydistribution.M_CATEGORY
+        + "_"
+        + cellprofiler.modules.measureobjectintensitydistribution.FF_MEAN_FRAC
+        % (image_name, bin, bin_count)
     )
 
 
@@ -72,17 +76,17 @@ def feature_radial_cv(bin, bin_count, image_name=IMAGE_NAME):
         )
 
     return (
-            cellprofiler.modules.measureobjectintensitydistribution.M_CATEGORY
-            + "_"
-            + cellprofiler.modules.measureobjectintensitydistribution.FF_RADIAL_CV
-            % (image_name, bin, bin_count)
+        cellprofiler.modules.measureobjectintensitydistribution.M_CATEGORY
+        + "_"
+        + cellprofiler.modules.measureobjectintensitydistribution.FF_RADIAL_CV
+        % (image_name, bin, bin_count)
     )
 
 
 def test_please_implement_a_test_of_the_new_version():
     assert (
-            cellprofiler.modules.measureobjectintensitydistribution.MeasureObjectIntensityDistribution.variable_revision_number
-            == 5
+        cellprofiler.modules.measureobjectintensitydistribution.MeasureObjectIntensityDistribution.variable_revision_number
+        == 6
     )
 
 
@@ -123,20 +127,18 @@ Maximum radius:50
         module,
         cellprofiler.modules.measureobjectintensitydistribution.MeasureObjectIntensityDistribution,
     )
-    assert module.image_count.value == 2
     assert module.object_count.value == 2
     assert module.bin_counts_count.value == 2
-    assert module.images[0].image_name == "EnhancedGreen"
-    assert module.images[1].image_name == "OrigBlue"
+    assert {"OrigBlue", "EnhancedGreen"}.issubset(module.images_list.value)
     assert module.objects[0].object_name == "Nuclei"
     assert (
-            module.objects[0].center_choice
-            == cellprofiler.modules.measureobjectintensitydistribution.C_SELF
+        module.objects[0].center_choice
+        == cellprofiler.modules.measureobjectintensitydistribution.C_SELF
     )
     assert module.objects[0].center_object_name == "Cells"
     assert (
-            module.objects[1].center_choice
-            == cellprofiler.modules.measureobjectintensitydistribution.C_CENTERS_OF_OTHER
+        module.objects[1].center_choice
+        == cellprofiler.modules.measureobjectintensitydistribution.C_CENTERS_OF_OTHER
     )
     assert module.objects[1].center_object_name == "Cells"
     assert module.bin_counts[0].bin_count == 4
@@ -148,9 +150,10 @@ Maximum radius:50
 
 
 def test_load_v3():
-    with open(
-        "./tests/resources/modules/measureobjectintensitydistribution/v3.pipeline", "r"
-    ) as fd:
+    file = tests.modules.get_test_resources_directory(
+        "measureobjectintensitydistribution/v3.pipeline"
+    )
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -166,25 +169,23 @@ def test_load_v3():
         module,
         cellprofiler.modules.measureobjectintensitydistribution.MeasureObjectIntensityDistribution,
     )
-    assert module.image_count.value == 2
     assert module.object_count.value == 3
     assert module.bin_counts_count.value == 2
-    assert module.images[0].image_name == "EnhancedGreen"
-    assert module.images[1].image_name == "OrigBlue"
+    assert {"OrigBlue", "EnhancedGreen"}.issubset(module.images_list.value)
     assert module.objects[0].object_name == "Nuclei"
     assert (
-            module.objects[0].center_choice
-            == cellprofiler.modules.measureobjectintensitydistribution.C_SELF
+        module.objects[0].center_choice
+        == cellprofiler.modules.measureobjectintensitydistribution.C_SELF
     )
     assert module.objects[0].center_object_name == "Cells"
     assert (
-            module.objects[1].center_choice
-            == cellprofiler.modules.measureobjectintensitydistribution.C_CENTERS_OF_OTHER
+        module.objects[1].center_choice
+        == cellprofiler.modules.measureobjectintensitydistribution.C_CENTERS_OF_OTHER
     )
     assert module.objects[1].center_object_name == "Cells"
     assert (
-            module.objects[2].center_choice
-            == cellprofiler.modules.measureobjectintensitydistribution.C_EDGES_OF_OTHER
+        module.objects[2].center_choice
+        == cellprofiler.modules.measureobjectintensitydistribution.C_EDGES_OF_OTHER
     )
     assert module.objects[2].center_object_name == "Cells"
     assert module.bin_counts[0].bin_count == 4
@@ -197,9 +198,10 @@ def test_load_v3():
 
 
 def test_load_v4():
-    with open(
-        "./tests/resources/modules/measureobjectintensitydistribution/v4.pipeline", "r"
-    ) as fd:
+    file = tests.modules.get_test_resources_directory(
+        "measureobjectintensitydistribution/v4.pipeline"
+    )
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -216,13 +218,12 @@ def test_load_v4():
         cellprofiler.modules.measureobjectintensitydistribution.MeasureObjectIntensityDistribution,
     )
     assert (
-            module.wants_zernikes
-            == cellprofiler.modules.measureobjectintensitydistribution.Z_NONE
+        module.wants_zernikes
+        == cellprofiler.modules.measureobjectintensitydistribution.Z_NONE
     )
     assert module.zernike_degree == 9
-    assert len(module.images) == 2
-    for group, image_name in zip(module.images, ("CropGreen", "CropRed")):
-        assert group.image_name.value == image_name
+    assert len(module.images_list.value) == 2
+    assert {"CropGreen", "CropRed"}.issubset(module.images_list.value)
     assert len(module.objects) == 2
     for group, (object_name, center_choice, center_object_name) in zip(
         module.objects,
@@ -302,9 +303,10 @@ def test_load_v4():
 
 
 def test_load_v5():
-    with open(
-        "./tests/resources/modules/measureobjectintensitydistribution/v5.pipeline", "r"
-    ) as fd:
+    file = tests.modules.get_test_resources_directory(
+        "measureobjectintensitydistribution/v5.pipeline"
+    )
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -321,13 +323,12 @@ def test_load_v5():
         cellprofiler.modules.measureobjectintensitydistribution.MeasureObjectIntensityDistribution,
     )
     assert (
-            module.wants_zernikes
-            == cellprofiler.modules.measureobjectintensitydistribution.Z_MAGNITUDES
+        module.wants_zernikes
+        == cellprofiler.modules.measureobjectintensitydistribution.Z_MAGNITUDES
     )
     assert module.zernike_degree == 7
-    assert len(module.images) == 2
-    for group, image_name in zip(module.images, ("CropGreen", "CropRed")):
-        assert group.image_name.value == image_name
+    assert len(module.images_list.value) == 2
+    assert {"CropGreen", "CropRed"}.issubset(module.images_list.value)
     assert len(module.objects) == 2
     for group, (object_name, center_choice, center_object_name) in zip(
         module.objects,
@@ -407,8 +408,8 @@ def test_load_v5():
 
     module = pipeline.modules()[1]
     assert (
-            module.wants_zernikes
-            == cellprofiler.modules.measureobjectintensitydistribution.Z_MAGNITUDES_AND_PHASE
+        module.wants_zernikes
+        == cellprofiler.modules.measureobjectintensitydistribution.Z_MAGNITUDES_AND_PHASE
     )
 
 
@@ -416,10 +417,7 @@ def test_01_get_measurement_columns():
     module = (
         cellprofiler.modules.measureobjectintensitydistribution.MeasureObjectIntensityDistribution()
     )
-    for i, image_name in ((0, "DNA"), (1, "Cytoplasm"), (2, "Actin")):
-        if i:
-            module.add_image()
-        module.images[i].image_name.value = image_name
+    module.images_list.value = "DNA, Cytoplasm, Actin"
     for i, object_name, center_name in (
         (0, "Nucleii", None),
         (1, "Cells", "Nucleii"),
@@ -452,11 +450,11 @@ def test_01_get_measurement_columns():
     for object_name, feature, coltype in columns:
         key = (object_name, feature)
         assert not (key in column_dictionary)
-        assert coltype == cellprofiler_core.measurement.COLTYPE_FLOAT
+        assert coltype == COLTYPE_FLOAT
         column_dictionary[key] = (object_name, feature, coltype)
 
     for object_name in [x.object_name.value for x in module.objects]:
-        for image_name in [x.image_name.value for x in module.images]:
+        for image_name in module.images_list.value:
             for bin_count, wants_scaled in [
                 (x.bin_count.value, x.wants_scaled.value) for x in module.bin_counts
             ]:
@@ -479,25 +477,22 @@ def test_02_get_zernike_columns():
     )
     for wants_zernikes, ftrs in (
         (
-                cellprofiler.modules.measureobjectintensitydistribution.Z_MAGNITUDES,
-                (
-                        cellprofiler.modules.measureobjectintensitydistribution.FF_ZERNIKE_MAGNITUDE,
+            cellprofiler.modules.measureobjectintensitydistribution.Z_MAGNITUDES,
+            (
+                cellprofiler.modules.measureobjectintensitydistribution.FF_ZERNIKE_MAGNITUDE,
             ),
         ),
         (
-                cellprofiler.modules.measureobjectintensitydistribution.Z_MAGNITUDES_AND_PHASE,
-                (
-                        cellprofiler.modules.measureobjectintensitydistribution.FF_ZERNIKE_MAGNITUDE,
-                        cellprofiler.modules.measureobjectintensitydistribution.FF_ZERNIKE_PHASE,
+            cellprofiler.modules.measureobjectintensitydistribution.Z_MAGNITUDES_AND_PHASE,
+            (
+                cellprofiler.modules.measureobjectintensitydistribution.FF_ZERNIKE_MAGNITUDE,
+                cellprofiler.modules.measureobjectintensitydistribution.FF_ZERNIKE_PHASE,
             ),
         ),
     ):
         module.wants_zernikes.value = wants_zernikes
         module.zernike_degree.value = 2
-        for i, image_name in ((0, "DNA"), (1, "Cytoplasm"), (2, "Actin")):
-            if i:
-                module.add_image()
-            module.images[i].image_name.value = image_name
+        module.images_list.value = "DNA, Cytoplasm, Actin"
         for i, object_name, center_name in (
             (0, "Nucleii", None),
             (1, "Cells", "Nucleii"),
@@ -523,7 +518,7 @@ def test_02_get_zernike_columns():
                         col = (
                             object_name,
                             name,
-                            cellprofiler_core.measurement.COLTYPE_FLOAT,
+                            COLTYPE_FLOAT,
                         )
                         assert col in columns
 
@@ -532,10 +527,7 @@ def test_01_get_measurements():
     module = (
         cellprofiler.modules.measureobjectintensitydistribution.MeasureObjectIntensityDistribution()
     )
-    for i, image_name in ((0, "DNA"), (1, "Cytoplasm"), (2, "Actin")):
-        if i:
-            module.add_image()
-        module.images[i].image_name.value = image_name
+    module.images_list.value = "DNA, Cytoplasm, Actin"
     for i, object_name, center_name in (
         (0, "Nucleii", None),
         (1, "Cells", "Nucleii"),
@@ -572,7 +564,7 @@ def test_01_get_measurements():
                 object_name,
                 cellprofiler.modules.measureobjectintensitydistribution.M_CATEGORY,
             )
-        for image_name in [x.image_name.value for x in module.images]:
+        for image_name in module.images_list.value:
             for (
                 feature
             ) in cellprofiler.modules.measureobjectintensitydistribution.F_ALL:
@@ -605,26 +597,23 @@ def test_02_get_zernike_measurements():
     )
     for wants_zernikes, ftrs in (
         (
-                cellprofiler.modules.measureobjectintensitydistribution.Z_MAGNITUDES,
-                (
-                        cellprofiler.modules.measureobjectintensitydistribution.FF_ZERNIKE_MAGNITUDE,
+            cellprofiler.modules.measureobjectintensitydistribution.Z_MAGNITUDES,
+            (
+                cellprofiler.modules.measureobjectintensitydistribution.FF_ZERNIKE_MAGNITUDE,
             ),
         ),
         (
-                cellprofiler.modules.measureobjectintensitydistribution.Z_MAGNITUDES_AND_PHASE,
-                (
-                        cellprofiler.modules.measureobjectintensitydistribution.FF_ZERNIKE_MAGNITUDE,
-                        cellprofiler.modules.measureobjectintensitydistribution.FF_ZERNIKE_PHASE,
+            cellprofiler.modules.measureobjectintensitydistribution.Z_MAGNITUDES_AND_PHASE,
+            (
+                cellprofiler.modules.measureobjectintensitydistribution.FF_ZERNIKE_MAGNITUDE,
+                cellprofiler.modules.measureobjectintensitydistribution.FF_ZERNIKE_PHASE,
             ),
         ),
     ):
         module.wants_zernikes.value = wants_zernikes
         module.zernike_degree.value = 2
 
-        for i, image_name in ((0, "DNA"), (1, "Cytoplasm"), (2, "Actin")):
-            if i:
-                module.add_image()
-            module.images[i].image_name.value = image_name
+        module.images_list.value = "DNA, Cytoplasm, Actin"
         for i, object_name, center_name in (
             (0, "Nucleii", None),
             (1, "Cells", "Nucleii"),
@@ -682,7 +671,7 @@ def test_default_heatmap_values():
     module.heatmaps[0].image_name.value = IMAGE_NAME
     module.heatmaps[0].object_name.value = OBJECT_NAME
     module.heatmaps[0].bin_count.value = 10
-    module.images[0].image_name.value = "Bar"
+    module.images_list.value = "Bar"
     module.objects[0].object_name.value = "Foo"
     module.bin_counts[0].bin_count.value = 2
     assert module.heatmaps[0].image_name.get_image_name() == "Bar"
@@ -690,7 +679,7 @@ def test_default_heatmap_values():
     assert module.heatmaps[0].object_name.get_objects_name() == "Foo"
     assert not module.heatmaps[0].object_name.is_visible()
     assert module.heatmaps[0].get_number_of_bins() == 2
-    module.add_image()
+    module.images_list.value = "Bar, MoreBar"
     assert module.heatmaps[0].image_name.is_visible()
     assert module.heatmaps[0].image_name.get_image_name() == IMAGE_NAME
     module.add_object()
@@ -725,7 +714,7 @@ def run_module(
     )
     module.wants_zernikes.value = wants_zernikes
     module.zernike_degree.value = zernike_degree
-    module.images[0].image_name.value = IMAGE_NAME
+    module.images_list.value = IMAGE_NAME
     module.objects[0].object_name.value = OBJECT_NAME
     object_set = cellprofiler_core.object.ObjectSet()
     main_objects = cellprofiler_core.object.Objects()
@@ -752,16 +741,16 @@ def run_module(
     for i, (a, f) in enumerate(
         (
             (
-                    cellprofiler.modules.measureobjectintensitydistribution.A_FRAC_AT_D,
-                    cellprofiler.modules.measureobjectintensitydistribution.F_FRAC_AT_D,
+                cellprofiler.modules.measureobjectintensitydistribution.A_FRAC_AT_D,
+                cellprofiler.modules.measureobjectintensitydistribution.F_FRAC_AT_D,
             ),
             (
-                    cellprofiler.modules.measureobjectintensitydistribution.A_MEAN_FRAC,
-                    cellprofiler.modules.measureobjectintensitydistribution.F_MEAN_FRAC,
+                cellprofiler.modules.measureobjectintensitydistribution.A_MEAN_FRAC,
+                cellprofiler.modules.measureobjectintensitydistribution.F_MEAN_FRAC,
             ),
             (
-                    cellprofiler.modules.measureobjectintensitydistribution.A_RADIAL_CV,
-                    cellprofiler.modules.measureobjectintensitydistribution.F_RADIAL_CV,
+                cellprofiler.modules.measureobjectintensitydistribution.A_RADIAL_CV,
+                cellprofiler.modules.measureobjectintensitydistribution.F_RADIAL_CV,
             ),
         )
     ):
@@ -806,8 +795,8 @@ def test_zeros_self():
             data = m.get_current_measurement(OBJECT_NAME, feature)
             assert len(data) == 0
     for ftr in (
-            cellprofiler.modules.measureobjectintensitydistribution.FF_ZERNIKE_MAGNITUDE,
-            cellprofiler.modules.measureobjectintensitydistribution.FF_ZERNIKE_PHASE,
+        cellprofiler.modules.measureobjectintensitydistribution.FF_ZERNIKE_MAGNITUDE,
+        cellprofiler.modules.measureobjectintensitydistribution.FF_ZERNIKE_PHASE,
     ):
         for n_, m_ in ((0, 0), (1, 1), (2, 0), (2, 2)):
             feature = "_".join(
@@ -1190,8 +1179,8 @@ def test_center_outside_of_object():
 
     image = numpy.random.uniform(size=labels.shape)
     for center_choice in (
-            cellprofiler.modules.measureobjectintensitydistribution.C_CENTERS_OF_OTHER,
-            cellprofiler.modules.measureobjectintensitydistribution.C_EDGES_OF_OTHER,
+        cellprofiler.modules.measureobjectintensitydistribution.C_CENTERS_OF_OTHER,
+        cellprofiler.modules.measureobjectintensitydistribution.C_EDGES_OF_OTHER,
     ):
         m = run_module(
             image,

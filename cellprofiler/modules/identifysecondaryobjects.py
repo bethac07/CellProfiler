@@ -1,16 +1,30 @@
-﻿# coding=utf-8
-
-import centrosome.cpmorphology
+﻿import centrosome.cpmorphology
 import centrosome.propagate
 import numpy
 import scipy.ndimage
-import skimage.morphology
+import skimage.segmentation
+from cellprofiler_core.constants.measurement import (
+    FF_CHILDREN_COUNT,
+    FF_PARENT,
+    FTR_CENTER_Z,
+    FTR_CENTER_Y,
+    FTR_CENTER_X,
+    C_LOCATION,
+    C_NUMBER,
+    FTR_OBJECT_NUMBER,
+    C_PARENT,
+    C_CHILDREN,
+    FF_COUNT,
+    C_COUNT,
+)
+from cellprofiler_core.module.image_segmentation import ObjectProcessing
+from cellprofiler_core.object import Objects
+from cellprofiler_core.setting import Binary
+from cellprofiler_core.setting.choice import Choice
+from cellprofiler_core.setting.subscriber import ImageSubscriber
+from cellprofiler_core.setting.text import Integer, Float, LabelName
+from cellprofiler_core.utilities.core.object import size_similarly
 
-import cellprofiler_core.image
-import cellprofiler_core.measurement
-import cellprofiler_core.module
-import cellprofiler_core.object
-import cellprofiler_core.setting
 from cellprofiler.modules import _help, threshold
 
 __doc__ = """\
@@ -167,7 +181,7 @@ N_SETTING_VALUES = 10
 R_PARENT = "Parent"
 
 
-class IdentifySecondaryObjects(cellprofiler_core.module.image_segmentation.ObjectProcessing):
+class IdentifySecondaryObjects(ObjectProcessing):
     module_name = "IdentifySecondaryObjects"
 
     variable_revision_number = 10
@@ -196,7 +210,7 @@ secondary object and completely contained within it."""
 
         self.y_name.doc = "Enter the name that you want to call the objects identified by this module."
 
-        self.method = cellprofiler_core.setting.Choice(
+        self.method = Choice(
             "Select the method to identify the secondary objects",
             [M_PROPAGATION, M_WATERSHED_G, M_WATERSHED_I, M_DISTANCE_N, M_DISTANCE_B],
             M_PROPAGATION,
@@ -283,7 +297,7 @@ Analysis and Machine Intelligence*, Vol. 13, No. 6, 583-598 (`link2`_)
             ),
         )
 
-        self.image_name = cellprofiler_core.setting.ImageNameSubscriber(
+        self.image_name = ImageSubscriber(
             "Select the input image",
             "None",
             doc="""\
@@ -295,7 +309,7 @@ identification, only the module's display.
             ),
         )
 
-        self.distance_to_dilate = cellprofiler_core.setting.Integer(
+        self.distance_to_dilate = Integer(
             "Number of pixels by which to expand the primary objects",
             10,
             minval=1,
@@ -311,7 +325,7 @@ measurements.
             ),
         )
 
-        self.regularization_factor = cellprofiler_core.setting.Float(
+        self.regularization_factor = Float(
             "Regularization factor",
             0.05,
             minval=0,
@@ -340,7 +354,7 @@ balance between these two considerations:
             ),
         )
 
-        self.wants_discard_edge = cellprofiler_core.setting.Binary(
+        self.wants_discard_edge = Binary(
             "Discard secondary objects touching the border of the image?",
             False,
             doc="""\
@@ -357,7 +371,7 @@ segmentation.
             ),
         )
 
-        self.fill_holes = cellprofiler_core.setting.Binary(
+        self.fill_holes = Binary(
             "Fill holes in identified objects?",
             True,
             doc="""\
@@ -370,7 +384,7 @@ enabled, the object will be lost when the hole is filled in.
             ),
         )
 
-        self.wants_discard_primary = cellprofiler_core.setting.Binary(
+        self.wants_discard_primary = Binary(
             "Discard the associated primary objects?",
             False,
             doc="""\
@@ -388,7 +402,7 @@ associated secondary object touches the image edge.
             ),
         )
 
-        self.new_primary_objects_name = cellprofiler_core.setting.ObjectNameProvider(
+        self.new_primary_objects_name = LabelName(
             "Name the new primary objects",
             "FilteredNuclei",
             doc="""\
@@ -402,7 +416,7 @@ this allows them to be considered in downstream modules that modify the
 segmentation.""",
         )
 
-        self.threshold_setting_version = cellprofiler_core.setting.Integer(
+        self.threshold_setting_version = Integer(
             "Threshold setting version", value=self.threshold.variable_revision_number
         )
 
@@ -470,9 +484,7 @@ segmentation.""",
 
         return help_settings
 
-    def upgrade_settings(
-        self, setting_values, variable_revision_number, module_name
-    ):
+    def upgrade_settings(self, setting_values, variable_revision_number, module_name):
         if variable_revision_number < 9:
             raise NotImplementedError(
                 "Automatic upgrade for this module is not supported in CellProfiler 3."
@@ -496,7 +508,10 @@ segmentation.""",
 
             threshold_settings_version = 9
 
-        threshold_upgrade_settings, threshold_settings_version = self.threshold.upgrade_settings(
+        (
+            threshold_upgrade_settings,
+            threshold_settings_version,
+        ) = self.threshold.upgrade_settings(
             ["None", "None"] + threshold_setting_values[1:],
             threshold_settings_version,
             "Threshold",
@@ -523,12 +538,7 @@ segmentation.""",
                 "The %s image and %s objects are not (%s vs %s).\n"
                 "If they are paired correctly you may want to use the Resize, ResizeObjects or "
                 "Crop module(s) to make them the same size."
-                % (
-                    image_name,
-                    self.x_name.value,
-                    img.shape,
-                    objects.shape,
-                )
+                % (image_name, self.x_name.value, img.shape, objects.shape,)
             )
         global_threshold = None
         if self.method == M_DISTANCE_N:
@@ -584,8 +594,7 @@ segmentation.""",
             if self.fill_holes:
                 label_mask = labels_out == 0
                 small_removed_segmented_out = centrosome.cpmorphology.fill_labeled_holes(
-                    labels_out,
-                    mask=label_mask
+                    labels_out, mask=label_mask
                 )
             else:
                 small_removed_segmented_out = labels_out
@@ -604,8 +613,7 @@ segmentation.""",
             if self.fill_holes:
                 label_mask = labels_out == 0
                 small_removed_segmented_out = centrosome.cpmorphology.fill_labeled_holes(
-                    labels_out,
-                    mask=label_mask
+                    labels_out, mask=label_mask
                 )
             else:
                 small_removed_segmented_out = labels_out.copy()
@@ -628,7 +636,7 @@ segmentation.""",
             # Perform the first watershed
             #
 
-            labels_out = skimage.morphology.watershed(
+            labels_out = skimage.segmentation.watershed(
                 connectivity=numpy.ones((3, 3), bool),
                 image=sobel_image,
                 markers=labels_in,
@@ -638,8 +646,7 @@ segmentation.""",
             if self.fill_holes:
                 label_mask = labels_out == 0
                 small_removed_segmented_out = centrosome.cpmorphology.fill_labeled_holes(
-                    labels_out,
-                    mask=label_mask
+                    labels_out, mask=label_mask
                 )
             else:
                 small_removed_segmented_out = labels_out.copy()
@@ -661,7 +668,7 @@ segmentation.""",
             # Perform the watershed
             #
 
-            labels_out = skimage.morphology.watershed(
+            labels_out = skimage.segmentation.watershed(
                 connectivity=numpy.ones((3, 3), bool),
                 image=inverted_img,
                 markers=labels_in,
@@ -671,8 +678,7 @@ segmentation.""",
             if self.fill_holes:
                 label_mask = labels_out == 0
                 small_removed_segmented_out = centrosome.cpmorphology.fill_labeled_holes(
-                    labels_out,
-                    mask=label_mask
+                    labels_out, mask=label_mask
                 )
             else:
                 small_removed_segmented_out = labels_out
@@ -694,7 +700,7 @@ segmentation.""",
             lookup[lookup != 0] = numpy.arange(numpy.sum(lookup != 0)) + 1
             segmented_labels = lookup[objects.segmented]
             segmented_out = lookup[segmented_out]
-            new_objects = cellprofiler_core.object.Objects()
+            new_objects = Objects()
             new_objects.segmented = segmented_labels
             if objects.has_unedited_segmented:
                 new_objects.unedited_segmented = objects.unedited_segmented
@@ -705,7 +711,7 @@ segmentation.""",
         #
         # Add the objects to the object set
         #
-        objects_out = cellprofiler_core.object.Objects()
+        objects_out = Objects()
         objects_out.unedited_segmented = small_removed_segmented_out
         objects_out.small_removed_segmented = small_removed_segmented_out
         objects_out.segmented = segmented_out
@@ -724,14 +730,10 @@ segmentation.""",
         #
         children_per_parent, parents_of_children = objects.relate_children(objects_out)
         measurements.add_measurement(
-            self.x_name.value,
-            cellprofiler_core.measurement.FF_CHILDREN_COUNT % objname,
-            children_per_parent,
+            self.x_name.value, FF_CHILDREN_COUNT % objname, children_per_parent,
         )
         measurements.add_measurement(
-            objname,
-            cellprofiler_core.measurement.FF_PARENT % self.x_name.value,
-            parents_of_children,
+            objname, FF_PARENT % self.x_name.value, parents_of_children,
         )
         image_numbers = (
             numpy.ones(len(parents_of_children), int) * measurements.image_set_number
@@ -766,14 +768,13 @@ segmentation.""",
 
             measurements.add_measurement(
                 self.new_primary_objects_name.value,
-                cellprofiler_core.measurement.FF_CHILDREN_COUNT % objname,
+                FF_CHILDREN_COUNT % objname,
                 children_per_parent,
             )
 
             measurements.add_measurement(
                 objname,
-                cellprofiler_core.measurement.FF_PARENT
-                % self.new_primary_objects_name.value,
+                FF_PARENT % self.new_primary_objects_name.value,
                 parents_of_children,
             )
 
@@ -791,23 +792,27 @@ segmentation.""",
     def _threshold_image(self, image_name, workspace, automatic=False):
         image = workspace.image_set.get_image(image_name, must_be_grayscale=True)
 
-        local_threshold, global_threshold = self.threshold.get_threshold(
+        final_threshold, orig_threshold, guide_threshold = self.threshold.get_threshold(
             image, workspace, automatic
         )
 
         self.threshold.add_threshold_measurements(
-            self.y_name.value, workspace.measurements, local_threshold, global_threshold
+            self.y_name.value,
+            workspace.measurements,
+            final_threshold,
+            orig_threshold,
+            guide_threshold,
         )
 
         binary_image, sigma = self.threshold.apply_threshold(
-            image, local_threshold, automatic
+            image, final_threshold, automatic
         )
 
         self.threshold.add_fg_bg_measurements(
             self.y_name.value, workspace.measurements, image, binary_image
         )
 
-        return binary_image, global_threshold, sigma
+        return binary_image, numpy.mean(numpy.atleast_1d(final_threshold)), sigma
 
     def display(self, workspace, figure):
         object_pct = workspace.display_data.object_pct
@@ -819,7 +824,7 @@ segmentation.""",
         statistics = workspace.display_data.statistics
 
         if global_threshold is not None:
-            statistics.append(["Threshold", "%.3f" % global_threshold])
+            statistics.append(["Threshold", "%0.3g" % global_threshold])
 
         if object_count > 0:
             areas = scipy.ndimage.sum(
@@ -885,9 +890,7 @@ segmentation.""",
         segmented_labels = objects.segmented
         max_out = numpy.max(labels_out)
         if max_out > 0:
-            segmented_labels, m1 = cellprofiler_core.object.size_similarly(
-                labels_out, segmented_labels
-            )
+            segmented_labels, m1 = size_similarly(labels_out, segmented_labels)
             segmented_labels[~m1] = 0
             lookup = scipy.ndimage.maximum(
                 segmented_labels, labels_out, list(range(max_out + 1))
@@ -940,14 +943,13 @@ segmentation.""",
             columns += [
                 (
                     self.new_primary_objects_name.value,
-                    cellprofiler_core.measurement.FF_CHILDREN_COUNT % self.y_name.value,
-                    cellprofiler_core.measurement.COLTYPE_INTEGER,
+                    FF_CHILDREN_COUNT % self.y_name.value,
+                    "integer",
                 ),
                 (
                     self.y_name.value,
-                    cellprofiler_core.measurement.FF_PARENT
-                    % self.new_primary_objects_name.value,
-                    cellprofiler_core.measurement.COLTYPE_INTEGER,
+                    FF_PARENT % self.new_primary_objects_name.value,
+                    "integer",
                 ),
             ]
         else:
@@ -977,7 +979,7 @@ segmentation.""",
                     pipeline, self.y_name.value
                 )
 
-                categories += [cellprofiler_core.measurement.C_CHILDREN]
+                categories += [C_CHILDREN]
 
         return categories
 
@@ -992,43 +994,32 @@ segmentation.""",
             )
 
         if self.wants_discard_edge and self.wants_discard_primary:
-            if (
-                object_name == cellprofiler_core.measurement.IMAGE
-                and category == cellprofiler_core.measurement.C_COUNT
-            ):
+            if object_name == "Image" and category == C_COUNT:
                 measurements += [self.new_primary_objects_name.value]
 
-            if (
-                object_name == self.y_name.value
-                and category == cellprofiler_core.measurement.C_PARENT
-            ):
+            if object_name == self.y_name.value and category == C_PARENT:
                 measurements += [self.new_primary_objects_name.value]
 
             if object_name == self.new_primary_objects_name.value:
-                if category == cellprofiler_core.measurement.C_LOCATION:
+                if category == C_LOCATION:
                     measurements += [
-                        cellprofiler_core.measurement.FTR_CENTER_X,
-                        cellprofiler_core.measurement.FTR_CENTER_Y,
-                        cellprofiler_core.measurement.FTR_CENTER_Z,
+                        FTR_CENTER_X,
+                        FTR_CENTER_Y,
+                        FTR_CENTER_Z,
                     ]
 
-                if category == cellprofiler_core.measurement.C_NUMBER:
-                    measurements += [cellprofiler_core.measurement.FTR_OBJECT_NUMBER]
+                if category == C_NUMBER:
+                    measurements += [FTR_OBJECT_NUMBER]
 
-                if category == cellprofiler_core.measurement.C_PARENT:
+                if category == C_PARENT:
                     measurements += [self.x_name.value]
 
-            if category == cellprofiler_core.measurement.C_CHILDREN:
+            if category == C_CHILDREN:
                 if object_name == self.x_name.value:
-                    measurements += [
-                        cellprofiler_core.measurement.FF_COUNT
-                        % self.new_primary_objects_name.value
-                    ]
+                    measurements += [FF_COUNT % self.new_primary_objects_name.value]
 
                 if object_name == self.new_primary_objects_name.value:
-                    measurements += [
-                        cellprofiler_core.measurement.FF_COUNT % self.y_name.value
-                    ]
+                    measurements += [FF_COUNT % self.y_name.value]
 
         return measurements
 

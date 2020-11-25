@@ -1,13 +1,18 @@
 import centrosome.cpmorphology
 import numpy
+import pytest
 import six.moves
 
 import cellprofiler_core.image
 import cellprofiler_core.measurement
+
+
 import cellprofiler.modules.displaydataonimage
 import cellprofiler_core.object
 import cellprofiler_core.pipeline
 import cellprofiler_core.workspace
+
+import tests.modules
 
 INPUT_IMAGE_NAME = "inputimage"
 OUTPUT_IMAGE_NAME = "outputimage"
@@ -16,7 +21,8 @@ MEASUREMENT_NAME = "measurement"
 
 
 def test_load_v4():
-    with open("./tests/resources/modules/displaydataonimage/v4.pipeline", "r") as fd:
+    file = tests.modules.get_test_resources_directory("displaydataonimage/v4.pipeline")
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -47,7 +53,8 @@ def test_load_v4():
 
 
 def test_load_v5():
-    with open("./tests/resources/modules/displaydataonimage/v5.pipeline", "r") as fd:
+    file = tests.modules.get_test_resources_directory("displaydataonimage/v5.pipeline")
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -76,15 +83,17 @@ def test_load_v5():
     assert module.colormap == "jet"
     assert not module.wants_image
     assert (
-            module.color_map_scale_choice
-            == cellprofiler.modules.displaydataonimage.CMS_USE_MEASUREMENT_RANGE
+        module.color_map_scale_choice
+        == cellprofiler.modules.displaydataonimage.CMS_USE_MEASUREMENT_RANGE
     )
     assert module.color_map_scale.min == 0
     assert module.color_map_scale.max == 1
 
 
+@pytest.mark.skip(reason="Outdated pipeline")
 def test_load_v6():
-    with open("./tests/resources/modules/displaydataonimage/v6.pipeline", "r") as fd:
+    file = tests.modules.get_test_resources_directory("displaydataonimage/v6.pipeline")
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -107,22 +116,22 @@ def test_load_v6():
     assert module.font_size == 11
     assert module.decimals == 3
     assert (
-            module.saved_image_contents == cellprofiler.modules.displaydataonimage.E_IMAGE
+        module.saved_image_contents == cellprofiler.modules.displaydataonimage.E_IMAGE
     )
     assert module.offset == 1
     assert module.color_or_text == cellprofiler.modules.displaydataonimage.CT_COLOR
     assert module.colormap == "jet"
     assert module.wants_image
     assert (
-            module.color_map_scale_choice
-            == cellprofiler.modules.displaydataonimage.CMS_MANUAL
+        module.color_map_scale_choice
+        == cellprofiler.modules.displaydataonimage.CMS_MANUAL
     )
     assert module.color_map_scale.min == 0.05
     assert module.color_map_scale.max == 1.5
     module = pipeline.modules()[1]
     assert (
-            module.color_map_scale_choice
-            == cellprofiler.modules.displaydataonimage.CMS_USE_MEASUREMENT_RANGE
+        module.color_map_scale_choice.value
+        == cellprofiler.modules.displaydataonimage.CMS_USE_MEASUREMENT_RANGE
     )
 
 
@@ -174,9 +183,9 @@ def make_workspace(measurement, labels=None, image=None):
 
 def test_display_image():
     for display in (
-            cellprofiler.modules.displaydataonimage.E_AXES,
-            cellprofiler.modules.displaydataonimage.E_FIGURE,
-            cellprofiler.modules.displaydataonimage.E_IMAGE,
+        cellprofiler.modules.displaydataonimage.E_AXES,
+        cellprofiler.modules.displaydataonimage.E_FIGURE,
+        cellprofiler.modules.displaydataonimage.E_IMAGE,
     ):
         workspace, module = make_workspace(0)
         module.saved_image_contents.value = display
@@ -190,9 +199,9 @@ def test_display_objects():
     labels[30:35, 35:50] = 2
     labels[5:18, 44:100] = 3
     for display in (
-            cellprofiler.modules.displaydataonimage.E_AXES,
-            cellprofiler.modules.displaydataonimage.E_FIGURE,
-            cellprofiler.modules.displaydataonimage.E_IMAGE,
+        cellprofiler.modules.displaydataonimage.E_AXES,
+        cellprofiler.modules.displaydataonimage.E_FIGURE,
+        cellprofiler.modules.displaydataonimage.E_IMAGE,
     ):
         workspace, module = make_workspace([0, 1, 2], labels)
         module.saved_image_contents.value = display
@@ -227,9 +236,9 @@ def test_display_objects_wrong_size():
     labels[5:18, 44:100] = 3
     input_image = numpy.random.uniform(size=(60, 110))
     for display in (
-            cellprofiler.modules.displaydataonimage.E_AXES,
-            cellprofiler.modules.displaydataonimage.E_FIGURE,
-            cellprofiler.modules.displaydataonimage.E_IMAGE,
+        cellprofiler.modules.displaydataonimage.E_AXES,
+        cellprofiler.modules.displaydataonimage.E_FIGURE,
+        cellprofiler.modules.displaydataonimage.E_IMAGE,
     ):
         workspace, module = make_workspace([0, 1, 2], labels, input_image)
         module.saved_image_contents.value = display

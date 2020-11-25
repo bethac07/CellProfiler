@@ -11,7 +11,7 @@ In CellProfiler, a *project* is comprised of two elements:
 -  The *pipeline*, which is a series of modules put together to
    analyze a set of images.
 -  Optionally, the associated information about the images (*metadata*).
-   This information may be part of the images themselves, or you may
+   This information may be extracted from the images themselves, or you may
    import them from an external file.
 
 The project is the container for image information associated with a
@@ -62,6 +62,8 @@ name or location. You can always save your current work to a new project
 file by selecting *File > Save Project As…*, which will save your
 project, complete with the current image file list and pipeline, to a
 file with the extension *.cpproj*.
+
+As an alternative, you can save the pipeline by itself to a file with the extention *.cppipe*, by selecting *File > Export > Pipeline*. *.cppipe* files contain only the list of steps and their corresponding settings and do not contain information about images.
 
 You also have the option of automatically saving the associated pipeline
 file and the file list in addition to the project file. See *File >

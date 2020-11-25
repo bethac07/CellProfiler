@@ -1,5 +1,3 @@
-# coding=utf-8
-
 """
 UnmixColors
 ===========
@@ -54,14 +52,22 @@ See also **ColorToGray**.
 .. _Colour\_Deconvolution.java: http://imagej.net/Colour_Deconvolution
 """
 
-import numpy as np
-from scipy.linalg import lstsq
+import math
+
+import numpy
+import scipy.linalg
+from cellprofiler_core.image import Image
+from cellprofiler_core.module import Module
+from cellprofiler_core.preferences import get_default_image_directory
+from cellprofiler_core.setting import Divider
+from cellprofiler_core.setting import HiddenCount
+from cellprofiler_core.setting import SettingsGroup
+from cellprofiler_core.setting.choice import Choice
+from cellprofiler_core.setting.do_something import DoSomething, RemoveSettingButton
+from cellprofiler_core.setting.subscriber import ImageSubscriber
+from cellprofiler_core.setting.text import Float, ImageName
 
 import cellprofiler.gui.help.content
-import cellprofiler_core.image as cpi
-import cellprofiler_core.module as cpm
-import cellprofiler_core.preferences as cpprefs
-import cellprofiler_core.setting as cps
 
 CHOICE_HEMATOXYLIN = "Hematoxylin"
 ST_HEMATOXYLIN = (0.644, 0.717, 0.267)
@@ -161,16 +167,16 @@ FIXED_SETTING_COUNT = 2
 VARIABLE_SETTING_COUNT = 5
 
 
-class UnmixColors(cpm.Module):
+class UnmixColors(Module):
     module_name = "UnmixColors"
     category = "Image Processing"
     variable_revision_number = 2
 
     def create_settings(self):
         self.outputs = []
-        self.stain_count = cps.HiddenCount(self.outputs, "Stain count")
+        self.stain_count = HiddenCount(self.outputs, "Stain count")
 
-        self.input_image_name = cps.ImageNameSubscriber(
+        self.input_image_name = ImageSubscriber(
             "Select the input color image",
             "None",
             doc="""\
@@ -180,7 +186,7 @@ loaded or created by some prior module.""",
 
         self.add_image(False)
 
-        self.add_image_button = cps.DoSomething(
+        self.add_image_button = DoSomething(
             "",
             "Add another stain",
             self.add_image,
@@ -194,17 +200,17 @@ custom values for the stain's red, green and blue absorbance.
         )
 
     def add_image(self, can_remove=True):
-        group = cps.SettingsGroup()
+        group = SettingsGroup()
         group.can_remove = can_remove
         if can_remove:
-            group.append("divider", cps.Divider())
+            group.append("divider", Divider())
         idx = len(self.outputs)
         default_name = STAINS_BY_POPULARITY[idx % len(STAINS_BY_POPULARITY)]
         default_name = default_name.replace(" ", "")
 
         group.append(
             "image_name",
-            cps.ImageNameProvider(
+            ImageName(
                 "Name the output image",
                 default_name,
                 doc="""\
@@ -219,7 +225,7 @@ subsequent modules in the pipeline.
 
         group.append(
             "stain_choice",
-            cps.Choice(
+            Choice(
                 "Stain",
                 choices=choices,
                 doc="""\
@@ -252,7 +258,7 @@ images).
 
         group.append(
             "red_absorbance",
-            cps.Float(
+            Float(
                 "Red absorbance",
                 0.5,
                 0,
@@ -271,7 +277,7 @@ calculate this value automatically.
 
         group.append(
             "green_absorbance",
-            cps.Float(
+            Float(
                 "Green absorbance",
                 0.5,
                 0,
@@ -290,7 +296,7 @@ calculate this value automatically.
 
         group.append(
             "blue_absorbance",
-            cps.Float(
+            Float(
                 "Blue absorbance",
                 0.5,
                 0,
@@ -318,7 +324,7 @@ calculate this value automatically.
 
         group.append(
             "estimator_button",
-            cps.DoSomething(
+            DoSomething(
                 "Estimate absorbance from image",
                 "Estimate",
                 on_estimate,
@@ -333,7 +339,7 @@ blue absorbance values from the image.
         if can_remove:
             group.append(
                 "remover",
-                cps.RemoveSettingButton("", "Remove this image", self.outputs, group),
+                RemoveSettingButton("", "Remove this image", self.outputs, group),
             )
         self.outputs.append(group)
 
@@ -394,15 +400,15 @@ blue absorbance values from the image.
         #
         eps = 1.0 / 256.0 / 2.0
         image = input_pixels + eps
-        log_image = np.log(image)
+        log_image = numpy.log(image)
         #
         # Now multiply the log-transformed image
         #
-        scaled_image = log_image * inverse_absorbances[np.newaxis, np.newaxis, :]
+        scaled_image = log_image * inverse_absorbances[numpy.newaxis, numpy.newaxis, :]
         #
         # Exponentiate to get the image without the dye effect
         #
-        image = np.exp(np.sum(scaled_image, 2))
+        image = numpy.exp(numpy.sum(scaled_image, 2))
         #
         # and subtract out the epsilon we originally introduced
         #
@@ -411,31 +417,35 @@ blue absorbance values from the image.
         image[image > 1] = 1
         image = 1 - image
         image_name = output.image_name.value
-        output_image = cpi.Image(image, parent_image=input_image)
+        output_image = Image(image, parent_image=input_image)
         workspace.image_set.add(image_name, output_image)
         if self.show_window:
             workspace.display_data.outputs[image_name] = image
 
     def display(self, workspace, figure):
-        """Display all of the images in a figure"""
-        figure.set_subplots((len(self.outputs) + 1, 1))
+        """Display all of the images in a figure, use rows of 3 subplots"""
+        numcols = min(3, len(self.outputs) + 1)
+        numrows = math.ceil((len(self.outputs) + 1) / 3)
+        figure.set_subplots((numcols, numrows))
+        coordslist = [(x, y) for y in range(numrows) for x in range(numcols)][1:]
         input_image = workspace.display_data.input_image
         figure.subplot_imshow_color(
             0, 0, input_image, title=self.input_image_name.value
         )
         ax = figure.subplot(0, 0)
         for i, output in enumerate(self.outputs):
+            x, y = coordslist[i]
             image_name = output.image_name.value
             pixel_data = workspace.display_data.outputs[image_name]
             figure.subplot_imshow_grayscale(
-                i + 1, 0, pixel_data, title=image_name, sharexy=ax
+                x, y, pixel_data, title=image_name, sharexy=ax
             )
 
     def get_absorbances(self, output):
         """Given one of the outputs, return the red, green and blue absorbance"""
 
         if output.stain_choice == CHOICE_CUSTOM:
-            result = np.array(
+            result = numpy.array(
                 (
                     output.red_absorbance.value,
                     output.green_absorbance.value,
@@ -444,8 +454,8 @@ blue absorbance values from the image.
             )
         else:
             result = STAIN_DICTIONARY[output.stain_choice.value]
-        result = np.array(result)
-        result = result / np.sqrt(np.sum(result ** 2))
+        result = numpy.array(result)
+        result = result / numpy.sqrt(numpy.sum(result ** 2))
         return result
 
     def get_inverse_absorbances(self, output):
@@ -457,28 +467,27 @@ blue absorbance values from the image.
         of absorbances corresponding to the entered row.
         """
         idx = self.outputs.index(output)
-        absorbance_array = np.array([self.get_absorbances(o) for o in self.outputs])
-        absorbance_matrix = np.matrix(absorbance_array)
-        return np.array(absorbance_matrix.I[:, idx]).flatten()
+        absorbance_array = numpy.array([self.get_absorbances(o) for o in self.outputs])
+        absorbance_matrix = numpy.matrix(absorbance_array)
+        return numpy.array(absorbance_matrix.I[:, idx]).flatten()
 
     def estimate_absorbance(self):
         """Load an image and use it to estimate the absorbance of a stain
 
         Returns a 3-tuple of the R/G/B absorbances
         """
-
-        from cellprofiler_core.modules.loadimages import LoadImagesImageProvider
+        from cellprofiler_core.image import FileImage
         import wx
 
         dlg = wx.FileDialog(
-            None, "Choose reference image", cpprefs.get_default_image_directory()
+            None, "Choose reference image", get_default_image_directory()
         )
         dlg.Wildcard = (
             "Image file (*.tif, *.tiff, *.bmp, *.png, *.gif, *.jpg)|"
             "*.tif;*.tiff;*.bmp;*.png;*.gif;*.jpg"
         )
         if dlg.ShowModal() == wx.ID_OK:
-            lip = LoadImagesImageProvider("dummy", "", dlg.Path)
+            lip = FileImage("dummy", "", dlg.Path)
             image = lip.provide_image(None).pixel_data
             if image.ndim < 3:
                 wx.MessageBox(
@@ -491,25 +500,25 @@ blue absorbance values from the image.
             # Log-transform the image
             #
             eps = 1.0 / 256.0 / 2.0
-            log_image = np.log(image + eps)
+            log_image = numpy.log(image + eps)
             data = [-log_image[:, :, i].flatten() for i in range(3)]
             #
             # Order channels by strength
             #
-            sums = [np.sum(x) for x in data]
-            order = np.lexsort([sums])
+            sums = [numpy.sum(x) for x in data]
+            order = numpy.lexsort([sums])
             #
             # Calculate relative absorbance against the strongest.
             # Fit Ax = y to find A where x is the strongest and y
             # is each in turn.
             #
-            strongest = data[order[-1]][:, np.newaxis]
-            absorbances = [lstsq(strongest, d)[0][0] for d in data]
+            strongest = data[order[-1]][:, numpy.newaxis]
+            absorbances = [scipy.linalg.lstsq(strongest, d)[0][0] for d in data]
             #
             # Normalize
             #
-            absorbances = np.array(absorbances)
-            return absorbances / np.sqrt(np.sum(absorbances ** 2))
+            absorbances = numpy.array(absorbances)
+            return absorbances / numpy.sqrt(numpy.sum(absorbances ** 2))
         return None
 
     def prepare_settings(self, setting_values):

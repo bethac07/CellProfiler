@@ -9,25 +9,47 @@ import os
 import sys
 import time
 
-import six.moves
 import wx
+from cellprofiler_core.constants.pipeline import DIRECTION_UP
+from cellprofiler_core.pipeline import (
+    ModuleShowWindow,
+    ModuleDisabled,
+    ModuleEnabled,
+    PipelineLoaded,
+    ModuleAdded,
+    ModuleMoved,
+    ModuleRemoved,
+    PipelineCleared,
+    ModuleEdited,
+    dump,
+    Pipeline,
+)
+from cellprofiler_core.preferences import EXT_PROJECT_CHOICES, EXT_PIPELINE_CHOICES
+from cellprofiler_core.setting.subscriber import Subscriber
+from cellprofiler_core.setting.text import Name
+from cellprofiler_core.setting.subscriber import ImageListSubscriber
+from cellprofiler_core.setting.subscriber import LabelListSubscriber
+from cellprofiler_core.setting import Measurement
 
 import cellprofiler.gui
 import cellprofiler.gui.figure
+import cellprofiler.gui.module_view._validation_request_controller
 import cellprofiler.gui.moduleview
 import cellprofiler.gui.pipeline
+import cellprofiler.gui.utilities.module_view
 import cellprofiler.icons
-import cellprofiler_core.pipeline
-import cellprofiler_core.preferences
-
-logger = logging.getLogger(__name__)
 
 IMG_OK = cellprofiler.icons.get_builtin_image("check")
 IMG_ERROR = cellprofiler.icons.get_builtin_image("remove-sign")
 IMG_EYE = cellprofiler.icons.get_builtin_image("eye-open")
 IMG_CLOSED_EYE = cellprofiler.icons.get_builtin_image("eye-close")
+IMG_STEP = cellprofiler.icons.get_builtin_image("IMG_ANALYZE_16")
+IMG_STEPPED = cellprofiler.icons.get_builtin_image("IMG_ANALYZED")
 IMG_PAUSE = cellprofiler.icons.get_builtin_image("IMG_PAUSE")
-IMG_GO = cellprofiler.icons.get_builtin_image("IMG_GO")
+IMG_GO = cellprofiler.icons.get_builtin_image("IMG_GO_DIM")
+IMG_INPUT = cellprofiler.icons.get_builtin_image("IMG_USE_INPUT")
+IMG_OUTPUT = cellprofiler.icons.get_builtin_image("IMG_USE_OUTPUT")
+IMG_SOURCE = cellprofiler.icons.get_builtin_image("IMG_USE_SOURCE")
 IMG_DISABLED = cellprofiler.icons.get_builtin_image("unchecked")
 IMG_UNAVAILABLE = cellprofiler.icons.get_builtin_image("IMG_UNAVAILABLE")
 IMG_SLIDER = cellprofiler.icons.get_builtin_image("IMG_SLIDER")
@@ -43,11 +65,12 @@ def plv_get_bitmap(data):
     return wx.Bitmap(data)
 
 
-PAUSE_COLUMN = 0
-EYE_COLUMN = 1
-ERROR_COLUMN = 2
-MODULE_NAME_COLUMN = 3
-NUM_COLUMNS = 4
+STEP_COLUMN = 0
+PAUSE_COLUMN = 1
+EYE_COLUMN = 2
+ERROR_COLUMN = 3
+MODULE_NAME_COLUMN = 4
+NUM_COLUMNS = 5
 INPUT_ERROR_COLUMN = 0
 INPUT_MODULE_NAME_COLUMN = 1
 NUM_INPUT_COLUMNS = 2
@@ -76,9 +99,11 @@ PLV_STATE_UNAVAILABLE = 4096
 PLV_STATE_PROCEED = 8192
 """Report that the slider has moved"""
 EVT_PLV_SLIDER_MOTION = wx.PyEventBinder(wx.NewEventType())
+EVT_PLV_STEP_COLUMN_CLICKED = wx.PyEventBinder(wx.NewEventType())
 EVT_PLV_PAUSE_COLUMN_CLICKED = wx.PyEventBinder(wx.NewEventType())
 EVT_PLV_EYE_COLUMN_CLICKED = wx.PyEventBinder(wx.NewEventType())
 EVT_PLV_ERROR_COLUMN_CLICKED = wx.PyEventBinder(wx.NewEventType())
+EVT_PLV_VALID_STEP_COLUMN_CLICKED = wx.PyEventBinder(wx.NewEventType())
 
 ############################
 #
@@ -144,14 +169,18 @@ class PipelineListView(object):
         self.outputs_panel.SetSizer(wx.BoxSizer())
         self.outputs_panel.SetBackgroundStyle(wx.BG_STYLE_ERASE)
         self.outputs_button = wx.Button(
-            self.outputs_panel, label="View output settings", style=wx.BU_EXACTFIT
+            self.outputs_panel, label="Output Settings", style=wx.BU_EXACTFIT
+        )
+        self.wsv_button = wx.Button(
+            self.outputs_panel, label="View Workspace", style=wx.BU_EXACTFIT
         )
         self.outputs_panel.GetSizer().AddStretchSpacer(1)
-        self.outputs_panel.GetSizer().Add(
-            self.outputs_button, 0, wx.ALIGN_CENTER_HORIZONTAL | wx.ALL, 2
-        )
+        self.outputs_panel.GetSizer().Add(self.outputs_button, 0, wx.ALL, 2)
+        self.outputs_panel.GetSizer().Add(self.wsv_button, 0, wx.ALL, 2)
         self.outputs_panel.GetSizer().AddStretchSpacer(1)
         self.outputs_button.Bind(wx.EVT_BUTTON, self.on_outputs_button)
+        self.wsv_button.Bind(wx.EVT_BUTTON, self.on_wsv_button)
+        self.wsv_button.Enable(False)
         self.outputs_panel.SetAutoLayout(True)
         self.__panel.Layout()
         self.outputs_panel.Layout()
@@ -178,7 +207,7 @@ class PipelineListView(object):
     def make_list(self):
         """Make the list control with the pipeline items in it"""
         self.list_ctrl = PipelineListCtrl(self.__panel)
-        self.__sizer.Add(self.list_ctrl, 1, wx.EXPAND)
+        self.__sizer.Add(self.list_ctrl, 1, wx.EXPAND | wx.TOP, border=2)
         #
         # Bind events
         #
@@ -191,6 +220,7 @@ class PipelineListView(object):
             EVT_PLV_ERROR_COLUMN_CLICKED, self.__on_error_column_clicked
         )
         self.list_ctrl.Bind(EVT_PLV_EYE_COLUMN_CLICKED, self.__on_eye_column_clicked)
+        self.list_ctrl.Bind(EVT_PLV_STEP_COLUMN_CLICKED, self.__on_step_column_clicked)
         self.list_ctrl.Bind(
             EVT_PLV_PAUSE_COLUMN_CLICKED, self.__on_pause_column_clicked
         )
@@ -209,6 +239,7 @@ class PipelineListView(object):
 
     def make_input_panel(self):
         self.input_list_ctrl = PipelineListCtrl(self.__panel)
+        self.input_list_ctrl.set_show_step(False)
         self.input_list_ctrl.set_show_go_pause(False)
         self.input_list_ctrl.set_show_frame_column(False)
         self.input_list_ctrl.set_allow_disable(False)
@@ -291,6 +322,9 @@ class PipelineListView(object):
     def on_outputs_button(self, event):
         self.__frame.show_preferences(True)
 
+    def on_wsv_button(self, event):
+        self.__frame.pipeline_controller.on_view_workspace(event)
+
     def request_validation(self, module=None):
         """Request validation of the pipeline, starting at the given module"""
         if module is None:
@@ -320,11 +354,11 @@ class PipelineListView(object):
                         setting_idx, message, level, module_num, settings_hash
                     )
 
-                validation_request = cellprofiler.gui.moduleview.ValidationRequest(
+                validation_request = cellprofiler.gui.module_view._validation_request_controller.ValidationRequestController(
                     self.__pipeline, module, on_validate_module
                 )
                 self.validation_requests.append(validation_request)
-                cellprofiler.gui.moduleview.request_module_validation(
+                cellprofiler.gui.utilities.module_view.request_module_validation(
                     validation_request
                 )
 
@@ -336,6 +370,7 @@ class PipelineListView(object):
             if len(modules) > 0:
                 self.select_one_module(modules[0].module_num)
         self.list_ctrl.set_test_mode(mode)
+        self.wsv_button.Enable(mode)
         self.__debug_mode = mode
         self.__sizer.Layout()
         self.request_validation()
@@ -354,7 +389,6 @@ class PipelineListView(object):
         list_ctrl, index = self.get_ctrl_and_index(module)
         if list_ctrl is self.list_ctrl:
             self.list_ctrl.set_running_item(index)
-        self.select_one_module(module.module_num)
 
     def reset_debug_module(self):
         """Set the pipeline slider to the first module to be debugged
@@ -401,17 +435,18 @@ class PipelineListView(object):
         """Pipeline event notifications come through here
 
         """
-        if isinstance(event, cellprofiler_core.pipeline.event.PipelineLoaded):
+        self.list_ctrl.show_io_trace = False
+        if isinstance(event, PipelineLoaded):
             self.__on_pipeline_loaded(pipeline, event)
-        elif isinstance(event, cellprofiler_core.pipeline.event.ModuleAdded):
+        elif isinstance(event, ModuleAdded):
             self.__on_module_added(pipeline, event)
-        elif isinstance(event, cellprofiler_core.pipeline.event.ModuleMoved):
+        elif isinstance(event, ModuleMoved):
             self.__on_module_moved(pipeline, event)
-        elif isinstance(event, cellprofiler_core.pipeline.event.ModuleRemoved):
+        elif isinstance(event, ModuleRemoved):
             self.__on_module_removed(pipeline, event)
-        elif isinstance(event, cellprofiler_core.pipeline.event.PipelineCleared):
+        elif isinstance(event, PipelineCleared):
             self.__on_pipeline_cleared(pipeline, event)
-        elif isinstance(event, cellprofiler_core.pipeline.event.ModuleEdited):
+        elif isinstance(event, ModuleEdited):
             for list_ctrl in self.list_ctrl, self.input_list_ctrl:
                 active_item = list_ctrl.get_active_item()
                 if (
@@ -436,11 +471,11 @@ class PipelineListView(object):
                             self.set_current_debug_module(module)
                         break
 
-        elif isinstance(event, cellprofiler_core.pipeline.event.ModuleEnabled):
+        elif isinstance(event, ModuleEnabled):
             self.__on_module_enabled(event)
-        elif isinstance(event, cellprofiler_core.pipeline.event.ModuleDisabled):
+        elif isinstance(event, ModuleDisabled):
             self.__on_module_disabled(event)
-        elif isinstance(event, cellprofiler_core.pipeline.event.ModuleShowWindow):
+        elif isinstance(event, ModuleShowWindow):
             self.__on_show_window(event)
 
     def notify_directory_change(self):
@@ -495,7 +530,7 @@ class PipelineListView(object):
             if module.module_num == module_num:
                 break
         else:
-            logger.warn("Could not find module %d" % module_num)
+            logging.warning("Could not find module %d" % module_num)
             for ctrl, idx in self.iter_list_items():
                 ctrl.Select(idx, False)
             self.__on_item_selected(None)
@@ -511,7 +546,7 @@ class PipelineListView(object):
             if module.module_num == module_num:
                 break
         else:
-            logger.warn("Could not find module %d" % module_num)
+            logging.warn("Could not find module %d" % module_num)
             return
         ctrl, idx = self.get_ctrl_and_index(module)
         ctrl.Select(idx, selected)
@@ -547,7 +582,10 @@ class PipelineListView(object):
     def __on_list_dclick(self, event):
         list_ctrl = event.GetEventObject()
         item, hit_code, subitem = list_ctrl.HitTestSubItem(event.Position)
-
+        if item is None:
+            # Open the add modules window
+            self.__frame.pipeline_controller.open_add_modules()
+            return
         if (
             0 <= item < list_ctrl.ItemCount
             and (hit_code & wx.LIST_HITTEST_ONITEM)
@@ -561,8 +599,25 @@ class PipelineListView(object):
 
     @staticmethod
     def find_module_figure_window(module):
-        name = cellprofiler.gui.figure.window_name(module)
-        return cellprofiler.gui.figure.find_fig(name=name)
+        from ..gui.utilities.figure import find_fig
+        from ..gui.utilities.figure import window_name
+
+        name = window_name(module)
+        return find_fig(name=name)
+
+    def __on_step_column_clicked(self, event):
+        module = self.get_event_module(event)
+        if not self.list_ctrl.test_mode:
+            return
+        if (
+            self.get_current_debug_module().module_num >= module.module_num
+            and module.enabled
+        ):
+            mod_evt = self.list_ctrl.make_event(
+                EVT_PLV_VALID_STEP_COLUMN_CLICKED, index=None, module=module
+            )
+            self.list_ctrl.GetEventHandler().ProcessEvent(mod_evt)
+        self.list_ctrl.Refresh(eraseBackground=False)
 
     def __on_pause_column_clicked(self, event):
         module = self.get_event_module(event)
@@ -596,6 +651,7 @@ class PipelineListView(object):
             ID_EDIT_ENABLE_MODULE,
             ID_DEBUG_RUN_FROM_THIS_MODULE,
             ID_DEBUG_STEP_FROM_THIS_MODULE,
+            ID_FIND_USAGES,
         )
 
         if event.EventObject is not self.list_ctrl:
@@ -611,16 +667,26 @@ class PipelineListView(object):
                     self.__controller.populate_edit_menu(sub_menu)
                     menu.AppendSubMenu(sub_menu, "&Add")
                     menu.Append(
-                        ID_EDIT_DELETE, "&Delete {} (#{})".format(module.module_name, module.module_num)
+                        ID_EDIT_DELETE,
+                        "&Delete {} (#{})".format(
+                            module.module_name, module.module_num
+                        ),
                     )
                     menu.Append(
-                        ID_EDIT_DUPLICATE, "Duplicate {} (#{})".format(module.module_name, module.module_num)
+                        ID_EDIT_DUPLICATE,
+                        "Duplicate {} (#{})".format(
+                            module.module_name, module.module_num
+                        ),
                     )
                     menu.Append(
-                        ID_EDIT_ENABLE_MODULE, "Enable {} (#{})".format(module.module_name, module.module_num)
+                        ID_EDIT_ENABLE_MODULE,
+                        "Enable {} (#{})".format(module.module_name, module.module_num),
                     )
                     menu.Append(
-                        ID_HELP_MODULE, "&Help for {} (#{})".format(module.module_name, module.module_num)
+                        ID_HELP_MODULE,
+                        "&Help for {} (#{})".format(
+                            module.module_name, module.module_num
+                        ),
                     )
                     if self.__debug_mode:
                         _, active_index = self.get_ctrl_and_index(module)
@@ -628,25 +694,45 @@ class PipelineListView(object):
                             self.get_current_debug_module()
                         )
 
-                        if active_index <= debug_index:
+                        if active_index <= debug_index and module.enabled:
                             menu.Append(
                                 ID_DEBUG_RUN_FROM_THIS_MODULE,
-                                "&Run from {} (#{})".format(module.module_name, module.module_num),
+                                "&Run from {} (#{})".format(
+                                    module.module_name, module.module_num
+                                ),
                             )
                             menu.Append(
                                 ID_DEBUG_STEP_FROM_THIS_MODULE,
-                                "&Step from {} (#{})".format(module.module_name, module.module_num),
+                                "&Step from {} (#{})".format(
+                                    module.module_name, module.module_num
+                                ),
                             )
+                    elif module.enabled:
+                        menu.Append(
+                            ID_FIND_USAGES,
+                            f"Trace inputs/outputs for {module.module_name} (#{module.module_num})",
+                        )
+
+                        if module.enabled:
+                            menu.Bind(
+                                wx.EVT_MENU,
+                                self.on_io_trace,
+                                id=cellprofiler.gui.cpframe.ID_FIND_USAGES,
+                            )
+
                 elif num_modules > 1:
                     # Multiple modules are selected
                     menu.Append(
-                        ID_EDIT_DELETE, "&Delete selected modules ({})".format(num_modules)
+                        ID_EDIT_DELETE,
+                        "&Delete selected modules ({})".format(num_modules),
                     )
                     menu.Append(
-                        ID_EDIT_DUPLICATE, "Duplicate selected modules ({})".format(num_modules)
+                        ID_EDIT_DUPLICATE,
+                        "Duplicate selected modules ({})".format(num_modules),
                     )
                     menu.Append(
-                        ID_EDIT_ENABLE_MODULE, "Enable selected modules ({})".format(num_modules)
+                        ID_EDIT_ENABLE_MODULE,
+                        "Enable selected modules ({})".format(num_modules),
                     )
 
             else:
@@ -665,11 +751,11 @@ class PipelineListView(object):
         if len(modules_to_save) == 0:
             event.Veto()
             return
-        fd = six.moves.StringIO()
-        temp_pipeline = cellprofiler_core.pipeline.Pipeline()
+        fd = io.StringIO()
+        temp_pipeline = Pipeline()
         for module in modules_to_save:
             temp_pipeline.add_module(module)
-        cellprofiler_core.pipeline.io.dump(temp_pipeline, fd, save_image_plane_details=False, version=5)
+        dump(temp_pipeline, fd, save_image_plane_details=False, version=5)
         pipeline_data_object = PipelineDataObject()
         pipeline_data_object.SetData(fd.getvalue().encode())
 
@@ -682,14 +768,14 @@ class PipelineListView(object):
         drop_source = wx.DropSource(self.list_ctrl)
         drop_source.SetData(data_object)
         self.drag_underway = False
-        self.drag_start = self.list_ctrl.ScreenToClient(wx.GetMousePosition())
+        self.drag_start = None
         self.drag_time = time.time()
         selected_module_ids = [m.id for m in self.get_selected_modules()]
         self.__pipeline.start_undoable_action()
         try:
-            result = drop_source.DoDragDrop(wx.Drag_AllowMove)
+            result = drop_source.DoDragDrop(wx.Drag_DefaultMove)
             self.drag_underway = False
-            if result in (wx.DragMove, wx.DragCopy):
+            if result == wx.DragMove:
                 for identifier in selected_module_ids:
                     for module in self.__pipeline.modules(False):
                         if module.id == identifier:
@@ -721,6 +807,9 @@ class PipelineListView(object):
         the cursor 10 pixels. Drop at drag site is not
         allowed.
         """
+        if self.drag_start is None:
+            self.drag_start = (x, y)
+            return False
         if not self.__allow_editing:
             return False
         index = self.where_to_drop(x, y)
@@ -742,7 +831,7 @@ class PipelineListView(object):
             self.drag_underway = True
         if self.drag_start is not None:
             start_index = self.list_ctrl.HitTest(self.drag_start)
-            if start_index == index:
+            if start_index[0] == index:
                 return False
         return True
 
@@ -776,7 +865,7 @@ class PipelineListView(object):
     def on_filelist_data(self, x, y, action, filenames):
         for filename in filenames:
             _, ext = os.path.splitext(filename)
-            if len(ext) > 1 and ext[1:] in cellprofiler_core.preferences.EXT_PROJECT_CHOICES:
+            if len(ext) > 1 and ext[1:] in EXT_PROJECT_CHOICES:
                 self.__frame.Raise()
                 if (
                     wx.MessageBox(
@@ -789,10 +878,7 @@ class PipelineListView(object):
                 ):
                     self.__frame.pipeline_controller.do_open_workspace(filename)
                     break
-            elif (
-                len(ext) > 1
-                and ext[1:] in cellprofiler_core.preferences.EXT_PIPELINE_CHOICES
-            ):
+            elif len(ext) > 1 and ext[1:] in EXT_PIPELINE_CHOICES:
                 self.__frame.Raise()
                 if (
                     wx.MessageBox(
@@ -813,7 +899,7 @@ class PipelineListView(object):
         wx.BeginBusyCursor()
         try:
             pipeline = cellprofiler.gui.pipeline.Pipeline()
-            pipeline.load(six.moves.StringIO(data))
+            pipeline.load(io.StringIO(data))
             n_input_modules = self.get_input_item_count()
             for i, module in enumerate(pipeline.modules(False)):
                 module.module_num = i + index + n_input_modules + 1
@@ -884,7 +970,8 @@ class PipelineListView(object):
         module = pipeline.modules(False)[event.module_num - 1]
         self.__populate_row(module)
         self.__adjust_rows()
-        self.select_one_module(event.module_num)
+        if len(self.get_selected_modules()) <= 1:
+            self.select_one_module(event.module_num)
         self.request_validation(module)
         self.notify_has_file_list(self.__has_file_list)
 
@@ -904,7 +991,7 @@ class PipelineListView(object):
     def __on_module_moved(self, pipeline, event):
         module = pipeline.modules(False)[event.module_num - 1]
         list_ctrl, index = self.get_ctrl_and_index(module)
-        if event.direction == cellprofiler_core.pipeline.DIRECTION_UP:
+        if event.direction == DIRECTION_UP:
             # if this module was moved up, the one before it was moved down
             # and is now after
             other_module = pipeline.modules(False)[event.module_num]
@@ -1000,12 +1087,68 @@ class PipelineListView(object):
         setting = event.get_setting()
         module = event.get_module()
         list_ctrl, index = self.get_ctrl_and_index(module)
-        if not module.is_input_module() and (not self.list_ctrl.running_item or
-                                             self.list_ctrl.running_item > index):
-            self.list_ctrl.set_running_item(index)
+        if self.list_ctrl.running_item is not None:
+            if not module.is_input_module() and self.list_ctrl.running_item > index:
+                self.list_ctrl.set_running_item(index)
 
     def on_stop_debugging(self):
         self.list_ctrl.set_test_mode(False)
+
+    def on_io_trace(self, event):
+        self.list_ctrl.show_io_trace = False
+        self.list_ctrl.Refresh(eraseBackground=False)
+
+        # Get the selected module
+        tgt_module = self.get_selected_modules()
+        if len(tgt_module) != 1:
+            return
+        else:
+            tgt_module = tgt_module[0]
+        inputs, outputs, measures_in, measures_out = self._get_inputs_outputs(tgt_module)
+        need_measures_out = len(measures_in) > 0
+        after_tgt = False
+        for module in self.__pipeline.modules(exclude_disabled=False):
+            module.io_status = None
+            if not module.enabled:
+                continue
+            if module == tgt_module:
+                after_tgt = True
+                module.io_status = "source"
+                continue
+            mod_inputs, mod_outputs, mod_m_in, mod_m_out = self._get_inputs_outputs(module, need_measures_out)
+            if not after_tgt and "Export" in tgt_module.module_name and "Measure" in module.module_name:
+                module.io_status = "output"
+            elif after_tgt and "Export" in module.module_name and len(measures_out) > 0:
+                module.io_status = "input"
+            elif not inputs.isdisjoint(mod_outputs):
+                module.io_status = "output"
+            elif not outputs.isdisjoint(mod_inputs):
+                module.io_status = "input"
+            elif not after_tgt and not measures_in.isdisjoint(mod_m_out):
+                module.io_status = "output"
+            elif after_tgt and not measures_out.isdisjoint(mod_m_in):
+                module.io_status = "input"
+        self.list_ctrl.show_io_trace = True
+        self.list_ctrl.Refresh(eraseBackground=False)
+
+    def _get_inputs_outputs(self, module, need_measure_outputs=True):
+        inputs = []
+        outputs = []
+        measures_in = []
+        for setting in module.visible_settings():
+            if isinstance(setting, (ImageListSubscriber, LabelListSubscriber)):
+                inputs += setting.value
+            elif isinstance(setting, Subscriber):
+                inputs.append(setting.value)
+            elif isinstance(setting, Name):
+                outputs.append(setting.value)
+            elif isinstance(setting, Measurement):
+                measures_in.append(setting.value)
+        if need_measure_outputs:
+            measures_out = set([measure[1] for measure in module.get_measurement_columns(self.__pipeline)])
+        else:
+            measures_out = set()
+        return set(inputs), set(outputs), set(measures_in), measures_out
 
     def on_validate_module(
         self, setting_idx, message, level, module_num, settings_hash
@@ -1028,7 +1171,7 @@ class PipelineListView(object):
         list_ctrl.SetItemState(index, flags, PLV_STATE_ERROR_MASK)
 
 
-PIPELINE_DATA_FORMAT = "cellprofiler_core.pipeline"
+PIPELINE_DATA_FORMAT = "application.cellprofiler.pipeline"
 
 
 class PipelineDataObject(wx.CustomDataObject):
@@ -1070,6 +1213,9 @@ class PipelineDropTarget(wx.DropTarget):
                 self.window.on_filelist_data(
                     x, y, action, self.file_data_object.GetFilenames()
                 )
+        if action == 1:
+            # Bug in wx 4.1 returns the wrong action ID on Windows. Get the right one.
+            action = self.OnDragOver(x, y, None)
         return action
 
 
@@ -1142,6 +1288,13 @@ class PipelineListCtrl(wx.ScrolledWindow):
             """The module is breakpointed in test mode"""
             return self.module.wants_pause
 
+        def get_io_status(self):
+            """The module is breakpointed in test mode"""
+            if hasattr(self.module, "io_status"):
+                return self.module.io_status
+            else:
+                return None
+
         def is_unavailable(self):
             """The module is unavailable = not in pipeline"""
             return bool(self.__state & PLV_STATE_UNAVAILABLE)
@@ -1152,8 +1305,13 @@ class PipelineListCtrl(wx.ScrolledWindow):
         self.bmp_error = plv_get_bitmap(IMG_ERROR)
         self.bmp_eye = plv_get_bitmap(IMG_EYE)
         self.bmp_closed_eye = plv_get_bitmap(IMG_CLOSED_EYE)
+        self.bmp_step = plv_get_bitmap(IMG_STEP)
+        self.bmp_stepped = plv_get_bitmap(IMG_STEPPED)
         self.bmp_go = plv_get_bitmap(IMG_GO)
         self.bmp_pause = plv_get_bitmap(IMG_PAUSE)
+        self.bmp_input = plv_get_bitmap(IMG_INPUT)
+        self.bmp_output = plv_get_bitmap(IMG_OUTPUT)
+        self.bmp_source = plv_get_bitmap(IMG_SOURCE)
         self.bmp_unavailable = plv_get_bitmap(IMG_UNAVAILABLE)
         self.bmp_disabled = plv_get_bitmap(IMG_DISABLED)
         self.bmp_slider = plv_get_bitmap(IMG_SLIDER)
@@ -1173,12 +1331,16 @@ class PipelineListCtrl(wx.ScrolledWindow):
         self.test_mode = False
         # True if allowed to disable a module
         self.allow_disable = True
+        # True to show the step column, false to hide
+        self.show_step = True
         # True to show the pause column, false to hide
         self.show_go_pause = True
+        # True to show inheritence icons, false to hide
+        self.show_io_trace = False
         # True to show the eyeball column, false to hide it
         self.show_show_frame_column = True
         # Space reserved for test mode slider
-        self.slider_width = 20
+        self.slider_width = 10
         # The index at which a drop would take place, if dropping.
         self.drop_insert_point = None
         # Shading border around buttons
@@ -1254,14 +1416,14 @@ class PipelineListCtrl(wx.ScrolledWindow):
         elif x < x0:
             return None, wx.LIST_HITTEST_NOWHERE, None
         column = int((x - x0) / self.column_width)
-        if not (self.show_go_pause and self.test_mode) and column == PAUSE_COLUMN:
+        if (not (self.show_go_pause and self.test_mode) and not self.show_io_trace) and column == PAUSE_COLUMN:
             return None, wx.LIST_HITTEST_NOWHERE, None
         if not self.show_show_frame_column and column == EYE_COLUMN:
             return None, wx.LIST_HITTEST_NOWHERE, None
         row = int(y / self.line_height)
         if row >= len(self.items):
             return None, wx.LIST_HITTEST_BELOW, None
-        if column < 3:
+        if column < 4:
             return row, wx.LIST_HITTEST_ONITEMICON, column
         return row, wx.LIST_HITTEST_ONITEMLABEL, MODULE_NAME_COLUMN
 
@@ -1346,7 +1508,7 @@ class PipelineListCtrl(wx.ScrolledWindow):
         """Remove the item at the given index"""
         del self.items[index]
 
-        if self.active_item:
+        if self.active_item is not None:
             if self.active_item == index:
                 self.active_item = None
             elif self.active_item > index:
@@ -1436,6 +1598,15 @@ class PipelineListCtrl(wx.ScrolledWindow):
         self.AdjustScrollbars()
         self.Refresh(eraseBackground=False)
 
+    def set_show_step(self, state):
+        """Show or hide the go / pause test-mode icons
+
+        state - true to show them, false to hide them
+        """
+        self.show_step = state
+        self.AdjustScrollbars()
+        self.Refresh(eraseBackground=False)
+
     def set_show_go_pause(self, state):
         """Show or hide the go / pause test-mode icons
 
@@ -1473,7 +1644,7 @@ class PipelineListCtrl(wx.ScrolledWindow):
             width, height, _, _ = self.GetFullTextExtent(item.module_name)
             max_width = max(width, max_width)
         total_width = x0 + max_width + self.border * 2 + self.gap + self.text_gap
-        height = len(self.items) * self.line_height
+        height = max((len(self.items) - 1) * self.line_height, 0)
         return total_width, height
 
     def DoGetVirtualSize(self):
@@ -1491,17 +1662,20 @@ class PipelineListCtrl(wx.ScrolledWindow):
             y0 = 0
         return wx.Rect(x0 + self.gap, y0 + idx * self.line_height, 16, 16)
 
-    def get_go_pause_rect(self, idx):
+    def get_step_rect(self, idx):
         return self.get_button_rect(0, idx)
 
-    def get_eye_rect(self, idx):
+    def get_go_pause_rect(self, idx):
         return self.get_button_rect(1, idx)
 
-    def get_error_rect(self, idx):
+    def get_eye_rect(self, idx):
         return self.get_button_rect(2, idx)
 
+    def get_error_rect(self, idx):
+        return self.get_button_rect(3, idx)
+
     def get_text_rect(self, index):
-        x0 = self.slider_width + self.column_width * 3 + self.text_gap
+        x0 = self.slider_width + self.column_width * 4 + self.text_gap
         return wx.Rect(
             x0 + self.gap,
             index * self.line_height,
@@ -1538,16 +1712,44 @@ class PipelineListCtrl(wx.ScrolledWindow):
             wx.SYS_COLOUR_LISTBOXHIGHLIGHTTEXT
         )
 
+        if len(self.items) == 0:
+            text = "Drop a pipeline file here (.cppipe or .cpproj)\n or double-click to add modules"
+            dc.SetTextForeground(wx.SystemSettings.GetColour(wx.SYS_COLOUR_GRAYTEXT))
+            dc.DrawLabel(
+                text, wx.Bitmap(), wx.Rect(self.GetSize()), alignment=wx.ALIGN_CENTER,
+            )
+
         for index, item in enumerate(self.items):
             item_text_color = text_color
 
-            dc.SetFont(self.Font)
+            dc.SetFont(self.GetFont())
+
+            if self.show_step and self.test_mode:
+                rectangle = self.get_step_rect(index)
+                bitmap = (
+                    self.bmp_step if self.running_item == index else self.bmp_stepped
+                )
+                if self.running_item >= index and item.enabled:
+                    dc.DrawBitmap(bitmap, rectangle.GetLeft(), rectangle.GetTop(), True)
 
             if self.show_go_pause and self.test_mode:
                 rectangle = self.get_go_pause_rect(index)
                 bitmap = self.bmp_pause if item.is_paused() else self.bmp_go
 
                 dc.DrawBitmap(bitmap, rectangle.GetLeft(), rectangle.GetTop(), True)
+
+            if self.show_io_trace and not self.test_mode:
+                rectangle = self.get_go_pause_rect(index)
+                status = item.get_io_status()
+                bitmap = False
+                if status == "input":
+                    bitmap = self.bmp_input
+                elif status == "output":
+                    bitmap = self.bmp_output
+                elif status == "source":
+                    bitmap = self.bmp_source
+                if bitmap:
+                    dc.DrawBitmap(bitmap, rectangle.GetLeft(), rectangle.GetTop(), True)
 
             if self.show_show_frame_column:
                 rectangle = self.get_eye_rect(index)
@@ -1604,9 +1806,6 @@ class PipelineListCtrl(wx.ScrolledWindow):
 
             if self.test_mode and self.running_item == index:
                 dc.SetFont(font.MakeUnderlined())
-                cellprofiler.gui.draw_item_selection_rect(
-                    self, dc, rectangle, flags | wx.CONTROL_SELECTED
-                )
 
             dc.SetBackgroundMode(wx.PENSTYLE_TRANSPARENT)
 
@@ -1625,11 +1824,13 @@ class PipelineListCtrl(wx.ScrolledWindow):
 
             dc.DrawLine(0, y, self.GetSize()[0], y)
 
-    def make_event(self, py_event_binder, index=None):
+    def make_event(self, py_event_binder, index=None, module=None):
         event = wx.NotifyEvent(py_event_binder.evtType[0])
         event.SetEventObject(self)
         if index is not None:
             event.SetInt(index)
+        if module is not None:
+            event.module = module
         return event
 
     def on_left_down(self, event):
@@ -1666,7 +1867,9 @@ class PipelineListCtrl(wx.ScrolledWindow):
                 if new_item_id == item_id:
                     self.activate_item(index, toggle_selection, multiple_selection)
         elif hit_test & wx.LIST_HITTEST_ONITEMICON:
-            if column != ERROR_COLUMN or self.CanSelect():
+            if column == PAUSE_COLUMN and not self.test_mode:
+                return
+            elif column != ERROR_COLUMN or self.CanSelect():
                 self.pressed_row = index
                 self.pressed_column = column
                 self.button_is_active = True
@@ -1733,6 +1936,8 @@ class PipelineListCtrl(wx.ScrolledWindow):
         if self.button_is_active and self.pressed_column is not None:
             if self.pressed_column == ERROR_COLUMN:
                 code = EVT_PLV_ERROR_COLUMN_CLICKED
+            elif self.pressed_column == STEP_COLUMN:
+                code = EVT_PLV_STEP_COLUMN_CLICKED
             elif self.pressed_column == PAUSE_COLUMN:
                 code = EVT_PLV_PAUSE_COLUMN_CLICKED
             else:
@@ -1782,7 +1987,17 @@ class PipelineListCtrl(wx.ScrolledWindow):
                             % item.module.module_name
                         )
                 elif column == PAUSE_COLUMN:
-                    if item.module.wants_pause:
+                    if self.show_io_trace:
+                        status = item.get_io_status()
+                        if status == "output":
+                            tooltip_text = f"This module produces images, objects or measurements needed by the " \
+                                           f"inspected module. "
+                        elif status == "input":
+                            tooltip_text = f"This module uses images, objects or measurements produced by the " \
+                                           f"inspected module. "
+                        elif status == "source":
+                            tooltip_text = "This is the inspected module"
+                    elif item.module.wants_pause:
                         tooltip_text = (
                             "Test mode will stop before executing %s. Click icon to change"
                             % item.module.module_name

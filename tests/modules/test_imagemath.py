@@ -6,6 +6,9 @@ import pytest
 import six.moves
 import skimage.util
 
+
+import tests.modules
+
 import cellprofiler_core.image
 import cellprofiler_core.measurement
 import cellprofiler_core.module
@@ -57,6 +60,7 @@ def workspace(image_a, image_b, module):
 
 def run_operation(operation, expected, module, workspace):
     module.operation.value = operation
+    module.replace_nan.value = False
     module.run(workspace)
     output = workspace.image_set.get_image("output")
     actual = output.pixel_data
@@ -207,7 +211,8 @@ class TestBinaryImages(object):
     @staticmethod
     def test_subtract(image_a, image_b, module, workspace):
         operation = "Subtract"
-        expected = numpy.logical_xor(image_a.pixel_data, image_b.pixel_data)
+        expected = image_a.pixel_data.copy()
+        expected[image_b.pixel_data] = False
         run_operation(operation, expected, module, workspace)
 
     @staticmethod
@@ -284,7 +289,8 @@ class TestBinaryImages(object):
 
 
 def test_load_v3():
-    with open("./tests/resources/modules/imagemath/v3.pipeline", "r") as fd:
+    file = tests.modules.get_test_resources_directory("imagemath/v3.pipeline")
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -305,20 +311,21 @@ def test_load_v3():
     assert module.ignore_mask
     assert module.output_image_name == "LogTransformed"
     assert (
-            module.images[0].image_or_measurement == cellprofiler.modules.imagemath.IM_IMAGE
+        module.images[0].image_or_measurement == cellprofiler.modules.imagemath.IM_IMAGE
     )
     assert module.images[0].image_name == "DNA"
     assert module.images[0].factor == 1.2
     assert (
-            module.images[1].image_or_measurement
-            == cellprofiler.modules.imagemath.IM_MEASUREMENT
+        module.images[1].image_or_measurement
+        == cellprofiler.modules.imagemath.IM_MEASUREMENT
     )
     assert module.images[1].measurement == "Count_Nuclei"
     assert module.images[1].factor == 1.5
 
 
 def test_load_v4():
-    with open("./tests/resources/modules/imagemath/v4.pipeline", "r") as fd:
+    file = tests.modules.get_test_resources_directory("imagemath/v4.pipeline")
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -339,13 +346,13 @@ def test_load_v4():
     assert module.ignore_mask
     assert module.output_image_name == "LogTransformed"
     assert (
-            module.images[0].image_or_measurement == cellprofiler.modules.imagemath.IM_IMAGE
+        module.images[0].image_or_measurement == cellprofiler.modules.imagemath.IM_IMAGE
     )
     assert module.images[0].image_name == "DNA"
     assert module.images[0].factor == 1.2
     assert (
-            module.images[1].image_or_measurement
-            == cellprofiler.modules.imagemath.IM_MEASUREMENT
+        module.images[1].image_or_measurement
+        == cellprofiler.modules.imagemath.IM_MEASUREMENT
     )
     assert module.images[1].measurement == "Count_Nuclei"
     assert module.images[1].factor == 1.5
@@ -840,7 +847,9 @@ def test_add_and_do_nothing():
     module.set_module_num(1)
     pipeline = cellprofiler_core.pipeline.Pipeline()
     pipeline.add_module(module)
-    workspace = cellprofiler_core.workspace.Workspace(pipeline, module, m, None, m, None)
+    workspace = cellprofiler_core.workspace.Workspace(
+        pipeline, module, m, None, m, None
+    )
     module.run(workspace)
     numpy.testing.assert_array_almost_equal(
         pixel_data, m.get_image("inputimage").pixel_data
@@ -869,7 +878,9 @@ def test_invert_binary_invert():
     module.operation.value = cellprofiler.modules.imagemath.O_INVERT
     module.set_module_num(2)
     pipeline = cellprofiler_core.pipeline.Pipeline()
-    workspace = cellprofiler_core.workspace.Workspace(pipeline, module, m, None, m, None)
+    workspace = cellprofiler_core.workspace.Workspace(
+        pipeline, module, m, None, m, None
+    )
     for module in pipeline.modules():
         module.run(workspace)
     numpy.testing.assert_array_equal(

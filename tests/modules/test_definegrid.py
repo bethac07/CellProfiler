@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
 
-import cellprofiler.grid
+
+import cellprofiler_core.utilities.grid
 import cellprofiler_core.image
 import cellprofiler_core.measurement
 import cellprofiler.modules.definegrid
@@ -75,7 +76,7 @@ def test_grid_automatic():
     module.wants_image.value = True
     module.run(workspace)
     gridding = workspace.get_grid(GRID_NAME)
-    assert isinstance(gridding, cellprofiler.grid.Grid)
+    assert isinstance(gridding, cellprofiler_core.utilities.grid.Grid)
     assert gridding.rows == rows
     assert gridding.columns == columns
     assert gridding.x_spacing == spacing_x
@@ -89,7 +90,7 @@ def test_grid_automatic():
     assert np.all(gridding.spot_table == spot_table)
 
     m = workspace.measurements
-    assert isinstance(m, cellprofiler_core.measurement.Measurements)
+    assert isinstance(m,cellprofiler_core.measurement.Measurements)
     for feature, value in (
         (cellprofiler.modules.definegrid.F_COLUMNS, columns),
         (cellprofiler.modules.definegrid.F_ROWS, rows),
@@ -101,7 +102,7 @@ def test_grid_automatic():
         measurement = "_".join(
             (cellprofiler.modules.definegrid.M_CATEGORY, GRID_NAME, feature)
         )
-        assert m.has_feature(cellprofiler_core.measurement.IMAGE, measurement)
+        assert m.has_feature("Image", measurement)
         assert m.get_current_image_measurement(measurement) == value
 
     image = workspace.image_set.get_image(OUTPUT_IMAGE_NAME)
@@ -150,7 +151,7 @@ def test_coordinates_plus_savedimagesize():
     module.wants_image.value = True
     module.run(workspace)
     gridding = workspace.get_grid(GRID_NAME)
-    assert isinstance(gridding, cellprofiler.grid.Grid)
+    assert isinstance(gridding, cellprofiler_core.utilities.grid.Grid)
     assert gridding.rows == rows
     assert gridding.columns == columns
     assert gridding.x_spacing == spacing_x
@@ -164,7 +165,7 @@ def test_coordinates_plus_savedimagesize():
     assert np.all(gridding.spot_table == spot_table)
 
     m = workspace.measurements
-    assert isinstance(m, cellprofiler_core.measurement.Measurements)
+    assert isinstance(m,cellprofiler_core.measurement.Measurements)
     for feature, value in (
         (cellprofiler.modules.definegrid.F_COLUMNS, columns),
         (cellprofiler.modules.definegrid.F_ROWS, rows),
@@ -176,7 +177,7 @@ def test_coordinates_plus_savedimagesize():
         measurement = "_".join(
             (cellprofiler.modules.definegrid.M_CATEGORY, GRID_NAME, feature)
         )
-        assert m.has_feature(cellprofiler_core.measurement.IMAGE, measurement)
+        assert m.has_feature("Image", measurement)
         assert m.get_current_image_measurement(measurement) == value
 
     image = workspace.image_set.get_image(OUTPUT_IMAGE_NAME)

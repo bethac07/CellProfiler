@@ -1,5 +1,3 @@
-# coding=utf-8
-
 """
 CalculateMath
 =============
@@ -55,15 +53,24 @@ category.
 
 import logging
 
-logger = logging.getLogger(__package__)
-
-import numpy as np
-import six
-
-import cellprofiler_core.module as cpm
-import cellprofiler_core.measurement as cpmeas
-import cellprofiler_core.setting as cps
-from cellprofiler_core.measurement import R_PARENT
+import numpy
+from cellprofiler_core.constants.measurement import COLTYPE_FLOAT
+from cellprofiler_core.constants.measurement import IMAGE
+from cellprofiler_core.constants.measurement import R_FIRST_IMAGE_NUMBER
+from cellprofiler_core.constants.measurement import R_FIRST_OBJECT_NUMBER
+from cellprofiler_core.constants.measurement import R_PARENT
+from cellprofiler_core.constants.measurement import R_SECOND_IMAGE_NUMBER
+from cellprofiler_core.constants.measurement import R_SECOND_OBJECT_NUMBER
+from cellprofiler_core.module import Module
+from cellprofiler_core.setting import Binary
+from cellprofiler_core.setting import Divider
+from cellprofiler_core.setting import Measurement
+from cellprofiler_core.setting import ValidationError
+from cellprofiler_core.setting.choice import Choice
+from cellprofiler_core.setting.subscriber import LabelSubscriber
+from cellprofiler_core.setting.text import Alphanumeric
+from cellprofiler_core.setting.text import Float
+from cellprofiler_core.setting.text import Integer
 
 O_MULTIPLY = "Multiply"
 O_DIVIDE = "Divide"
@@ -73,15 +80,21 @@ O_NONE = "None"
 
 O_ALL = [O_MULTIPLY, O_DIVIDE, O_ADD, O_SUBTRACT, O_NONE]
 
-MC_IMAGE = cpmeas.IMAGE
+MC_IMAGE = IMAGE
 MC_OBJECT = "Object"
 MC_ALL = [MC_IMAGE, MC_OBJECT]
 
 C_MATH = "Math"
 
-ROUNDING = ["Not rounded", "Rounded to a specified number of decimal places", "Rounded down to the next-lowest integer", "Rounded up to the next-highest integer"]
+ROUNDING = [
+    "Not rounded",
+    "Rounded to a specified number of decimal places",
+    "Rounded down to the next-lowest integer",
+    "Rounded up to the next-highest integer",
+]
 
-class CalculateMath(cpm.Module):
+
+class CalculateMath(Module):
     module_name = "CalculateMath"
     category = "Data Tools"
     variable_revision_number = 3
@@ -94,19 +107,19 @@ class CalculateMath(cpm.Module):
             def __init__(self, index, operation):
                 self.__index = index
                 self.__operation = operation
-                self.__operand_choice = cps.Choice(
+                self.__operand_choice = Choice(
                     self.operand_choice_text(),
                     MC_ALL,
                     doc="""Indicate whether the operand is an image or object measurement.""",
                 )
 
-                self.__operand_objects = cps.ObjectNameSubscriber(
+                self.__operand_objects = LabelSubscriber(
                     self.operand_objects_text(),
                     "None",
                     doc="""Choose the objects you want to measure for this operation.""",
                 )
 
-                self.__operand_measurement = cps.Measurement(
+                self.__operand_measurement = Measurement(
                     self.operand_measurement_text(),
                     self.object_fn,
                     doc="""\
@@ -115,13 +128,13 @@ will be prompted to add additional information depending on
 the type of measurement that is requested.""",
                 )
 
-                self.__multiplicand = cps.Float(
+                self.__multiplicand = Float(
                     "Multiply the above operand by",
                     1,
                     doc="""Enter the number by which you would like to multiply the above operand.""",
                 )
 
-                self.__exponent = cps.Float(
+                self.__exponent = Float(
                     "Raise the power of above operand by",
                     1,
                     doc="""Enter the power by which you would like to raise the above operand.""",
@@ -156,13 +169,13 @@ the type of measurement that is requested.""",
             def object(self):
                 """The name of the object for measurement or "Image\""""
                 if self.operand_choice == MC_IMAGE:
-                    return cpmeas.IMAGE
+                    return IMAGE
                 else:
                     return self.operand_objects.value
 
             def object_fn(self):
                 if self.__operand_choice == MC_IMAGE:
-                    return cpmeas.IMAGE
+                    return IMAGE
                 elif self.__operand_choice == MC_OBJECT:
                     return self.__operand_objects.value
                 else:
@@ -224,13 +237,13 @@ the type of measurement that is requested.""",
                 result += [self.operand_measurement, self.multiplicand, self.exponent]
                 return result
 
-        self.output_feature_name = cps.AlphanumericText(
+        self.output_feature_name = Alphanumeric(
             "Name the output measurement",
             "Measurement",
             doc="""Enter a name for the measurement calculated by this module.""",
         )
 
-        self.operation = cps.Choice(
+        self.operation = Choice(
             "Operation",
             O_ALL,
             doc="""\
@@ -242,20 +255,20 @@ module, such as multiplying or exponentiating your image by a constant.
 
         self.operands = (Operand(0, self.operation), Operand(1, self.operation))
 
-        self.spacer_1 = cps.Divider(line=True)
+        self.spacer_1 = Divider(line=True)
 
-        self.spacer_2 = cps.Divider(line=True)
+        self.spacer_2 = Divider(line=True)
 
-        self.spacer_3 = cps.Divider(line=True)
+        self.spacer_3 = Divider(line=True)
 
-        self.wants_log = cps.Binary(
+        self.wants_log = Binary(
             "Take log10 of result?",
             False,
             doc="""Select *Yes* if you want the log (base 10) of the result."""
             % globals(),
         )
 
-        self.final_multiplicand = cps.Float(
+        self.final_multiplicand = Float(
             "Multiply the result by",
             1,
             doc="""\
@@ -265,7 +278,7 @@ Enter the number by which you would like to multiply the result.
 """,
         )
 
-        self.final_exponent = cps.Float(
+        self.final_exponent = Float(
             "Raise the power of result by",
             1,
             doc="""\
@@ -275,59 +288,60 @@ Enter the power by which you would like to raise the result.
 """,
         )
 
-        self.final_addend = cps.Float(
+        self.final_addend = Float(
             "Add to the result",
             0,
             doc="""Enter the number you would like to add to the result.""",
         )
 
-        self.constrain_lower_bound = cps.Binary(
+        self.constrain_lower_bound = Binary(
             "Constrain the result to a lower bound?",
             False,
             doc="""Select *Yes* if you want the result to be constrained to a lower bound."""
             % globals(),
         )
 
-        self.lower_bound = cps.Float(
+        self.lower_bound = Float(
             "Enter the lower bound",
             0,
             doc="""Enter the lower bound of the result here.""",
         )
 
-        self.constrain_upper_bound = cps.Binary(
+        self.constrain_upper_bound = Binary(
             "Constrain the result to an upper bound?",
             False,
             doc="""Select *Yes* if you want the result to be constrained to an upper bound."""
             % globals(),
         )
 
-        self.upper_bound = cps.Float(
+        self.upper_bound = Float(
             "Enter the upper bound",
             1,
             doc="""Enter the upper bound of the result here.""",
         )
 
-        self.rounding = cps.Choice(
-            "How should the output value be rounded?", 
-           ROUNDING, 
-           doc="""\
+        self.rounding = Choice(
+            "How should the output value be rounded?",
+            ROUNDING,
+            doc="""\
 Choose how the values should be rounded- not at all, to a specified number of decimal places, 
 to the next lowest integer ("floor rounding"), or to the next highest integer ("ceiling rounding").
 Note that for rounding to an arbitrary number of decimal places, Python uses "round to even" rounding,
 such that ties round to the nearest even number. Thus, 1.5 and 2.5 both round to to 2 at 0 decimal 
 places, 2.45 rounds to 2.4, 2.451 rounds to 2.5, and 2.55 rounds to 2.6 at 1 decimal place. See the 
 numpy documentation for more information.  
-""")
+""",
+        )
 
-        self.rounding_digit = cps.Integer(
-            "Enter how many decimal places the value should be rounded to", 
-           0, 
-           doc="""\
+        self.rounding_digit = Integer(
+            "Enter how many decimal places the value should be rounded to",
+            0,
+            doc="""\
 Enter how many decimal places the value should be rounded to. 0 will round to an integer (e.g. 1, 2), 1 to 
 one decimal place (e.g. 0.1, 0.2), -1 to one value before the decimal place (e.g. 10, 20), etc.
-""")
-     
-         
+""",
+        )
+
     def settings(self):
         result = [self.output_feature_name, self.operation]
         result += self.operands[0].settings() + self.operands[1].settings()
@@ -337,17 +351,14 @@ one decimal place (e.g. 0.1, 0.2), -1 to one value before the decimal place (e.g
             self.final_exponent,
             self.final_addend,
         ]
-        result += [
-           self.rounding, 
-           self.rounding_digit
-        ]
+        result += [self.rounding, self.rounding_digit]
         result += [
             self.constrain_lower_bound,
             self.lower_bound,
             self.constrain_upper_bound,
             self.upper_bound,
         ]
-         
+
         return result
 
     def post_pipeline_load(self, pipeline):
@@ -385,8 +396,7 @@ one decimal place (e.g. 0.1, 0.2), -1 to one value before the decimal place (e.g
         result += [self.constrain_upper_bound]
         if self.constrain_upper_bound:
             result += [self.upper_bound]
-            result += [self.upper_bound]
-            
+
         return result
 
     def run(self, workspace):
@@ -394,17 +404,17 @@ one decimal place (e.g. 0.1, 0.2), -1 to one value before the decimal place (e.g
         values = []
         input_values = []
         has_image_measurement = any(
-            [operand.object == cpmeas.IMAGE for operand in self.get_operands()]
+            [operand.object == IMAGE for operand in self.get_operands()]
         )
         all_image_measurements = all(
-            [operand.object == cpmeas.IMAGE for operand in self.get_operands()]
+            [operand.object == IMAGE for operand in self.get_operands()]
         )
         all_object_names = list(
-            set(
+            dict.fromkeys(
                 [
                     operand.operand_objects.value
                     for operand in self.get_operands()
-                    if operand.object != cpmeas.IMAGE
+                    if operand.object != IMAGE
                 ]
             )
         )
@@ -416,19 +426,19 @@ one decimal place (e.g. 0.1, 0.2), -1 to one value before the decimal place (e.g
             )
             # Copy the measurement (if it's right type) or else it gets altered by the operation
             if value is None:
-                value = np.nan
-            elif not np.isscalar(value):
+                value = numpy.nan
+            elif not numpy.isscalar(value):
                 value = value.copy()
                 # ensure that the data can be changed in-place by floating point ops
-                value = value.astype(np.float)
+                value = value.astype(numpy.float)
 
-            if isinstance(value, six.string_types):
+            if isinstance(value, str):
                 try:
                     value = float(value)
                 except ValueError:
                     raise ValueError(
                         "Unable to use non-numeric value in measurement, %s"
-                        % operand.measurement.value
+                        % operand.operand_measurement.value
                     )
 
             input_values.append(value)
@@ -457,14 +467,14 @@ one decimal place (e.g. 0.1, 0.2), -1 to one value before the decimal place (e.g
                         gg.object_name1 == operand_object1
                         and gg.object_name2 == operand_object2
                     ):
-                        f0 = cpmeas.R_FIRST_OBJECT_NUMBER
-                        f1 = cpmeas.R_SECOND_OBJECT_NUMBER
+                        f0 = R_FIRST_OBJECT_NUMBER
+                        f1 = R_SECOND_OBJECT_NUMBER
                     elif (
                         gg.object_name1 == operand_object2
                         and gg.object_name2 == operand_object1
                     ):
-                        f1 = cpmeas.R_FIRST_OBJECT_NUMBER
-                        f0 = cpmeas.R_SECOND_OBJECT_NUMBER
+                        f1 = R_FIRST_OBJECT_NUMBER
+                        f0 = R_SECOND_OBJECT_NUMBER
                     else:
                         continue
                     r = m.get_relationships(
@@ -475,8 +485,8 @@ one decimal place (e.g. 0.1, 0.2), -1 to one value before the decimal place (e.g
                         image_numbers=[m.image_set_number],
                     )
                     r = r[
-                        (r[cpmeas.R_FIRST_IMAGE_NUMBER] == m.image_set_number)
-                        & (r[cpmeas.R_SECOND_IMAGE_NUMBER] == m.image_set_number)
+                        (r[R_FIRST_IMAGE_NUMBER] == m.image_set_number)
+                        & (r[R_SECOND_IMAGE_NUMBER] == m.image_set_number)
                     ]
                     i0 = r[f0] - 1
                     i1 = r[f1] - 1
@@ -488,13 +498,13 @@ one decimal place (e.g. 0.1, 0.2), -1 to one value before the decimal place (e.g
                     #
                     def bincount(indexes, weights=None, minlength=None):
                         """Minlength was added to numpy at some point...."""
-                        result = np.bincount(indexes, weights)
+                        result = numpy.bincount(indexes, weights)
                         if minlength is not None and len(result) < minlength:
-                            result = np.hstack(
+                            result = numpy.hstack(
                                 [
                                     result,
-                                    (0 if weights is None else np.nan)
-                                    * np.zeros(minlength - len(result)),
+                                    (0 if weights is None else numpy.nan)
+                                    * numpy.zeros(minlength - len(result)),
                                 ]
                             )
                         return result
@@ -505,7 +515,7 @@ one decimal place (e.g. 0.1, 0.2), -1 to one value before the decimal place (e.g
                     v0 = bincount(i1, values[0][i0], minlength=len(values[1])) / c1
                     break
             else:
-                logger.warning(
+                logging.warning(
                     "Incompatible objects: %s has %d objects and %s has %d objects"
                     % (operand_object1, len(values[0]), operand_object2, len(values[1]))
                 )
@@ -513,11 +523,11 @@ one decimal place (e.g. 0.1, 0.2), -1 to one value before the decimal place (e.g
                 # Match up as best as we can, padding with Nans
                 #
                 if len(values[0]) < len(values[1]):
-                    v0 = np.ones(len(values[1])) * np.nan
+                    v0 = numpy.ones(len(values[1])) * numpy.nan
                     v0[: len(values[0])] = values[0]
                     v1 = values[1][: len(values[0])]
                 else:
-                    v1 = np.ones(len(values[0])) * np.nan
+                    v1 = numpy.ones(len(values[0])) * numpy.nan
                     v1[: len(values[1])] = values[1]
                     v0 = values[0][: len(values[1])]
             result = [
@@ -549,7 +559,7 @@ one decimal place (e.g. 0.1, 0.2), -1 to one value before the decimal place (e.g
                 (
                     self.output_feature_name.value,
                     "Image" if all_image_measurements else "Object",
-                    "%.2f" % np.mean(result),
+                    "%.2f" % numpy.mean(result),
                 )
             ]
 
@@ -563,17 +573,17 @@ one decimal place (e.g. 0.1, 0.2), -1 to one value before the decimal place (e.g
         elif self.operation == O_MULTIPLY:
             result = numerator * denominator
         elif self.operation == O_DIVIDE:
-            if np.isscalar(denominator):
+            if numpy.isscalar(denominator):
                 if denominator == 0:
-                    if np.isscalar(numerator):
-                        result = np.NaN
+                    if numpy.isscalar(numerator):
+                        result = numpy.NaN
                     else:
-                        result = np.array([np.NaN] * len(numerator))
+                        result = numpy.array([numpy.NaN] * len(numerator))
                 else:
                     result = numerator / denominator
             else:
                 result = numerator / denominator
-                result[denominator == 0] = np.NaN
+                result[denominator == 0] = numpy.NaN
         else:
             raise NotImplementedError(
                 "Unsupported operation: %s" % self.operation.value
@@ -582,31 +592,31 @@ one decimal place (e.g. 0.1, 0.2), -1 to one value before the decimal place (e.g
         # Post-operation rescaling
         #
         if self.wants_log.value:
-            result = np.log10(result)
+            result = numpy.log10(result)
         if self.operation != O_NONE:
             result *= self.final_multiplicand.value
             # Handle NaNs with np.power instead of **
-            result = np.power(result, self.final_exponent.value)
+            result = numpy.power(result, self.final_exponent.value)
         result += self.final_addend.value
 
         if self.rounding == ROUNDING[1]:
-            result = np.around(result, self.rounding_digit.value)
+            result = numpy.around(result, self.rounding_digit.value)
 
         elif self.rounding == ROUNDING[2]:
-            result = np.floor(result)
+            result = numpy.floor(result)
 
         elif self.rounding == ROUNDING[3]:
-            result = np.ceil(result)      
-      
+            result = numpy.ceil(result)
+
         if self.constrain_lower_bound:
-            if np.isscalar(result):
+            if numpy.isscalar(result):
                 if result < self.lower_bound.value:
                     result = self.lower_bound.value
             else:
                 result[result < self.lower_bound.value] = self.lower_bound.value
 
         if self.constrain_upper_bound:
-            if np.isscalar(result):
+            if numpy.isscalar(result):
                 if result > self.upper_bound.value:
                     result = self.upper_bound.value
             else:
@@ -632,7 +642,7 @@ one decimal place (e.g. 0.1, 0.2), -1 to one value before the decimal place (e.g
             0,
             workspace.display_data.statistics,
             col_labels=workspace.display_data.col_labels,
-            title="If per-object values were calculated, use an Export module to view their results"
+            title="If per-object values were calculated, use an Export module to view their results",
         )
 
     def get_operands(self):
@@ -652,28 +662,28 @@ one decimal place (e.g. 0.1, 0.2), -1 to one value before the decimal place (e.g
                 [
                     operand.operand_objects.value
                     for operand in self.get_operands()
-                    if operand.object != cpmeas.IMAGE
+                    if operand.object != IMAGE
                 ]
             )
         )
         if len(all_object_names):
             return [
-                (name, self.measurement_name(), cpmeas.COLTYPE_FLOAT)
+                (name, self.measurement_name(), COLTYPE_FLOAT)
                 for name in all_object_names
             ]
         else:
-            return [(cpmeas.IMAGE, self.measurement_name(), cpmeas.COLTYPE_FLOAT)]
+            return [(IMAGE, self.measurement_name(), COLTYPE_FLOAT)]
 
     def get_categories(self, pipeline, object_name):
         all_object_names = [
             operand.operand_objects.value
             for operand in self.get_operands()
-            if operand.object != cpmeas.IMAGE
+            if operand.object != IMAGE
         ]
         if len(all_object_names):
             if object_name in all_object_names:
                 return [C_MATH]
-        elif object_name == cpmeas.IMAGE:
+        elif object_name == IMAGE:
             return [C_MATH]
         return []
 
@@ -693,7 +703,7 @@ one decimal place (e.g. 0.1, 0.2), -1 to one value before the decimal place (e.g
         all_object_names = [
             operand.operand_objects.value
             for operand in self.operands
-            if operand.object != cpmeas.IMAGE
+            if operand.object != IMAGE
         ]
         for module in pipeline.modules():
             if module.module_num == self.module_num:
@@ -701,15 +711,13 @@ one decimal place (e.g. 0.1, 0.2), -1 to one value before the decimal place (e.g
             for name in all_object_names:
                 features = module.get_measurements(pipeline, name, C_MATH)
                 if self.output_feature_name.value in features:
-                    raise cps.ValidationError(
+                    raise ValidationError(
                         'The feature, "%s", was already defined in module # %d'
                         % (self.output_feature_name.value, module.module_num),
                         self.output_feature_name,
                     )
 
-    def upgrade_settings(
-        self, setting_values, variable_revision_number, module_name
-    ):
+    def upgrade_settings(self, setting_values, variable_revision_number, module_name):
         if variable_revision_number == 1:
             # Added a final addition number as well as options to constrain
             # the result to an upper and/or lower bound.
@@ -720,7 +728,7 @@ one decimal place (e.g. 0.1, 0.2), -1 to one value before the decimal place (e.g
             setting_values = setting_values[:-4]
             setting_values += ["Not rounded", 0]
             setting_values += clip_values
-            variable_revision_number = 3 
+            variable_revision_number = 3
         return setting_values, variable_revision_number
 
     def volumetric(self):

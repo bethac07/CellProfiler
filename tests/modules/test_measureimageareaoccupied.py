@@ -3,11 +3,15 @@ import six
 
 import cellprofiler_core.image
 import cellprofiler_core.measurement
+from cellprofiler_core.constants.measurement import COLTYPE_FLOAT
+
+
 import cellprofiler.modules.measureimageareaoccupied
 import cellprofiler_core.object
 import cellprofiler_core.pipeline
 import cellprofiler_core.preferences
 import cellprofiler_core.workspace
+import tests.modules
 
 cellprofiler_core.preferences.set_headless()
 
@@ -24,7 +28,10 @@ def make_workspace(labels, parent_image=None):
     pipeline = cellprofiler_core.pipeline.Pipeline()
     module = cellprofiler.modules.measureimageareaoccupied.MeasureImageAreaOccupied()
     module.set_module_num(1)
-    module.operands[0].operand_objects.value = OBJECTS_NAME
+    module.operand_choice.value = (
+        cellprofiler.modules.measureimageareaoccupied.O_OBJECTS
+    )
+    module.objects_list.value = OBJECTS_NAME
     pipeline.add_module(module)
     image_set_list = cellprofiler_core.image.ImageSetList()
     workspace = cellprofiler_core.workspace.Workspace(
@@ -41,18 +48,18 @@ def make_workspace(labels, parent_image=None):
 def test_zeros():
     workspace = make_workspace(numpy.zeros((10, 10), int))
     module = workspace.module
-    module.operands[0].operand_choice.value = "Objects"
+    module.operand_choice.value = "Objects"
     module.run(workspace)
     m = workspace.measurements
 
     def mn(x):
-        return "AreaOccupied_%s_%s" % (x, module.operands[0].operand_objects.value)
+        return "AreaOccupied_%s_%s" % (x, module.objects_list.value[0])
 
     assert m.get_current_measurement("Image", mn("AreaOccupied")) == 0.0
     assert m.get_current_measurement("Image", mn("TotalArea")) == 100
 
     columns = module.get_measurement_columns(workspace.pipeline)
-    features = m.get_feature_names(cellprofiler_core.measurement.IMAGE)
+    features = m.get_feature_names("Image")
     assert len(columns) == len(features)
     for column in columns:
         assert column[1] in features
@@ -64,12 +71,12 @@ def test_one_object():
     area_occupied = numpy.sum(labels)
     workspace = make_workspace(labels)
     module = workspace.module
-    module.operands[0].operand_choice.value = "Objects"
+    module.operand_choice.value = "Objects"
     module.run(workspace)
     m = workspace.measurements
 
     def mn(x):
-        return "AreaOccupied_%s_%s" % (x, module.operands[0].operand_objects.value)
+        return "AreaOccupied_%s_%s" % (x, module.objects_list.value[0])
 
     assert m.get_current_measurement("Image", mn("AreaOccupied")) == area_occupied
     assert m.get_current_measurement("Image", mn("TotalArea")) == 100
@@ -86,12 +93,12 @@ def test_object_with_cropping():
     total_area = 64
     workspace = make_workspace(labels, image)
     module = workspace.module
-    module.operands[0].operand_choice.value = "Objects"
+    module.operand_choice.value = "Objects"
     module.run(workspace)
     m = workspace.measurements
 
     def mn(x):
-        return "AreaOccupied_%s_%s" % (x, module.operands[0].operand_objects.value)
+        return "AreaOccupied_%s_%s" % (x, module.objects_list.value[0])
 
     assert m.get_current_measurement("Image", mn("AreaOccupied")) == area_occupied
     assert m.get_current_measurement("Image", mn("Perimeter")) == perimeter
@@ -100,24 +107,24 @@ def test_object_with_cropping():
 
 def test_get_measurement_columns():
     module = cellprofiler.modules.measureimageareaoccupied.MeasureImageAreaOccupied()
-    module.operands[0].operand_objects.value = OBJECTS_NAME
-    module.operands[0].operand_choice.value = "Objects"
+    module.objects_list.value = OBJECTS_NAME
+    module.operand_choice.value = "Objects"
     columns = module.get_measurement_columns(cellprofiler_core.pipeline.Pipeline())
     expected = (
         (
-            cellprofiler_core.measurement.IMAGE,
+            "Image",
             "AreaOccupied_AreaOccupied_%s" % OBJECTS_NAME,
-            cellprofiler_core.measurement.COLTYPE_FLOAT,
+            COLTYPE_FLOAT,
         ),
         (
-            cellprofiler_core.measurement.IMAGE,
+            "Image",
             "AreaOccupied_Perimeter_%s" % OBJECTS_NAME,
-            cellprofiler_core.measurement.COLTYPE_FLOAT,
+            COLTYPE_FLOAT,
         ),
         (
-            cellprofiler_core.measurement.IMAGE,
+            "Image",
             "AreaOccupied_TotalArea_%s" % OBJECTS_NAME,
-            cellprofiler_core.measurement.COLTYPE_FLOAT,
+            COLTYPE_FLOAT,
         ),
     )
     assert len(columns) == len(expected)
@@ -138,12 +145,12 @@ def test_objects_volume():
     workspace.pipeline.set_volumetric(True)
 
     module = workspace.module
-    module.operands[0].operand_choice.value = "Objects"
+    module.operand_choice.value = "Objects"
 
     module.run(workspace)
 
     def mn(x):
-        return "AreaOccupied_%s_%s" % (x, module.operands[0].operand_objects.value)
+        return "AreaOccupied_%s_%s" % (x, module.objects_list.value[0])
 
     numpy.testing.assert_array_equal(
         workspace.measurements.get_current_measurement("Image", mn("VolumeOccupied")),
@@ -178,13 +185,13 @@ def test_image_volume():
     workspace.image_set.add("MyBinaryImage", image)
 
     module = workspace.module
-    module.operands[0].operand_choice.value = "Binary Image"
-    module.operands[0].binary_name.value = "MyBinaryImage"
+    module.operand_choice.value = "Binary Image"
+    module.images_list.value = "MyBinaryImage"
 
     module.run(workspace)
 
     def mn(x):
-        return "AreaOccupied_%s_%s" % (x, module.operands[0].binary_name.value)
+        return "AreaOccupied_%s_%s" % (x, module.images_list.value[0])
 
     numpy.testing.assert_array_equal(
         workspace.measurements.get_current_measurement("Image", mn("VolumeOccupied")),
@@ -204,9 +211,10 @@ def test_image_volume():
 
 
 def test_load_v3():
-    with open(
-        "./tests/resources/modules/measureimageareaoccupied/v3.pipeline", "r"
-    ) as fd:
+    file = tests.modules.get_test_resources_directory(
+        "measureimageareaoccupied/v3.pipeline"
+    )
+    with open(file, "r") as fd:
         data = fd.read()
 
     def callback(caller, event):
@@ -218,12 +226,7 @@ def test_load_v3():
 
     module = pipeline.modules()[0]
 
-    assert module.count.value == 3
-
-    assert module.operands[0].operand_choice == "Binary Image"
-
-    assert module.operands[1].operand_choice == "Objects"
-    assert module.operands[1].operand_objects == "Cells"
-
-    assert module.operands[2].operand_choice == "Objects"
-    assert module.operands[2].operand_objects == "Nuclei"
+    assert module.operand_choice.value == "Both"
+    assert module.images_list.value_text == "DNA"
+    assert len(module.objects_list.value) == 2
+    assert set(module.objects_list.value) == {"Nuclei", "Cells"}

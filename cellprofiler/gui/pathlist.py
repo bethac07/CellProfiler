@@ -2,19 +2,17 @@
 """
 
 import bisect
+import functools
 import logging
 import uuid
-from functools import reduce
+from urllib.request import url2pathname
 
 import numpy
-import six.moves.urllib.request
 import wx
 import wx.lib.scrolledpanel
+from cellprofiler_core.preferences import report_progress
 
 import cellprofiler.gui
-import cellprofiler_core.preferences
-
-logger = logging.getLogger(__name__)
 
 OMERO_SCHEME = "omero:"
 
@@ -115,7 +113,7 @@ class PathListCtrl(wx.ScrolledWindow):
                 self.DROP_FILES_AND_FOLDERS_HERE
             )[:2]
         except:
-            logger.warn(
+            logging.warn(
                 'Failed to get text extend for "%s" message'
                 % self.DROP_FILES_AND_FOLDERS_HERE,
                 exc_info=True,
@@ -254,11 +252,9 @@ class PathListCtrl(wx.ScrolledWindow):
         npaths = len(paths)
         for i, path in enumerate(paths):
             if i % 100 == 0:
-                cellprofiler_core.preferences.report_progress(
-                    uid, float(i) / npaths, "Loading %s into UI" % path
-                )
+                report_progress(uid, float(i) / npaths, "Loading %s into UI" % path)
             folder, filename = self.splitpath(path)
-            display_name = six.moves.urllib.request.url2pathname(filename)
+            display_name = url2pathname(filename)
             width, _, _, _ = self.GetFullTextExtent(display_name)
             idx = bisect.bisect_left(self.folder_names, folder)
             if idx >= len(self.folder_names) or self.folder_names[idx] != folder:
@@ -275,7 +271,7 @@ class PathListCtrl(wx.ScrolledWindow):
                 folder_item.file_display_names.insert(pidx, display_name)
                 folder_item.enabled.insert(pidx, True)
         if len(paths) > 0:
-            cellprofiler_core.preferences.report_progress(uid, 1, "Done")
+            report_progress(uid, 1, "Done")
         self.schmutzy = True
         self.Refresh(eraseBackground=False)
 
@@ -336,7 +332,7 @@ class PathListCtrl(wx.ScrolledWindow):
         For files, the user expects to see a path, not a URL
         """
         if folder.startswith("file:"):
-            return six.moves.urllib.request.url2pathname(folder[5:])
+            return url2pathname(folder[5:])
         return folder
 
     def recalc(self):
@@ -364,10 +360,10 @@ class PathListCtrl(wx.ScrolledWindow):
                     [numpy.sum(x.enabled) if x.opened else 0 for x in self.folder_items]
                 )
             self.folder_idxs = numpy.hstack(([0], numpy.cumsum(self.folder_counts + 1)))
-            max_width = reduce(
+            max_width = functools.reduce(
                 max,
                 [
-                    max(reduce(max, x.widths), x.display_width)
+                    max(functools.reduce(max, x.widths), x.display_width)
                     for x in self.folder_items
                 ],
             )
@@ -587,12 +583,11 @@ class PathListCtrl(wx.ScrolledWindow):
             self.recalc()
         width, height = self.GetSize()
         rn = wx.RendererNative.Get()
-        background_color = wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW)
-        background_brush = wx.Brush(background_color)
-        paint_dc.SetBrush(background_brush)
+        paint_dc.SetBackground(
+            wx.Brush(wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW))
+        )
         paint_dc.Clear()
         paint_dc.SetFont(self.GetFont())
-        paint_dc.SetBackgroundMode(wx.PENSTYLE_TRANSPARENT)
         has_focus = self.FindFocus() == self
         if has_focus:
             dir_color = wx.SystemSettings.GetColour(wx.SYS_COLOUR_HOTLIGHT)
@@ -608,9 +603,8 @@ class PathListCtrl(wx.ScrolledWindow):
                 wx.SystemSettings.GetColour(wx.SYS_COLOUR_GRAYTEXT)
             )
             paint_dc.SetFont(font)
-            text_width, text_height = paint_dc.GetTextExtent(text)
-            paint_dc.DrawText(
-                text, (width - text_width) / 2, (height - text_height) / 2
+            paint_dc.DrawLabel(
+                text, wx.Bitmap(), wx.Rect(self.GetSize()), alignment=wx.ALIGN_CENTER,
             )
             paint_dc.SetFont(self.GetFont())
 
@@ -695,9 +689,6 @@ class PathListCtrl(wx.ScrolledWindow):
                         yy,
                     )
         finally:
-            paint_dc.SetBrush(wx.NullBrush)
-            paint_dc.SetFont(wx.NullFont)
-            background_brush.Destroy()
             paint_dc.Destroy()
 
     def refresh_item(self, idx):

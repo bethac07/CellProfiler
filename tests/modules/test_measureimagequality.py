@@ -5,14 +5,18 @@ import numpy
 
 import cellprofiler_core.image
 import cellprofiler_core.measurement
-import cellprofiler_core.modules.identify
-import cellprofiler_core.modules.loadsingleimage
+from cellprofiler_core.constants.measurement import COLTYPE_FLOAT, EXPERIMENT
+from cellprofiler_core.constants.module._identify import O_FOREGROUND, O_THREE_CLASS, O_WEIGHTED_VARIANCE, O_TWO_CLASS, \
+    O_ENTROPY, O_BACKGROUND
+
+
 import cellprofiler.modules.measureimagequality
 import cellprofiler_core.modules.namesandtypes
 import cellprofiler.modules.smooth
 import cellprofiler_core.object
 import cellprofiler_core.pipeline
 import cellprofiler_core.workspace
+import tests.modules
 
 IMAGES_NAME = "my_image"
 OBJECTS_NAME = "my_objects"
@@ -75,10 +79,10 @@ def test_zeros():
         ("ImageQuality_MinIntensity_my_image", 0),
     ):
         assert m.has_current_measurements(
-            cellprofiler_core.measurement.IMAGE, feature_name
+            "Image", feature_name
         ), ("Missing feature %s" % feature_name)
         m_value = m.get_current_measurement(
-            cellprofiler_core.measurement.IMAGE, feature_name
+            "Image", feature_name
         )
         if not value is None:
             assert m_value == value, "Measured value, %f, for feature %s was not %f" % (
@@ -90,7 +94,7 @@ def test_zeros():
 
 
 def features_and_columns_match(
-    measurements, module, object_name=cellprofiler_core.measurement.IMAGE, pipeline=None
+    measurements, module, object_name="Image", pipeline=None
 ):
     assert object_name in measurements.get_object_names()
     features = measurements.get_feature_names(object_name)
@@ -105,9 +109,9 @@ def features_and_columns_match(
             column[1],
             features,
         )
-        assert column[2] == cellprofiler_core.measurement.COLTYPE_FLOAT, (
+        assert column[2] == COLTYPE_FLOAT, (
             "features_and_columns_match, %s type not %s"
-            % (column[2], cellprofiler_core.measurement.COLTYPE_FLOAT)
+            % (column[2], COLTYPE_FLOAT)
         )
 
 
@@ -137,10 +141,10 @@ def test_zeros_and_mask():
         ("ImageQuality_MinIntensity_my_image", 0),
     ):
         assert m.has_current_measurements(
-            cellprofiler_core.measurement.IMAGE, feature_name
+            "Image", feature_name
         ), ("Missing feature %s" % feature_name)
         m_value = m.get_current_measurement(
-            cellprofiler_core.measurement.IMAGE, feature_name
+            "Image", feature_name
         )
         assert m_value == value, "Measured value, %f, for feature %s was not %f" % (
             m_value,
@@ -177,15 +181,15 @@ def test_image_blur():
     ):
         if value is None:
             assert not m.has_current_measurements(
-                cellprofiler_core.measurement.IMAGE, feature_name
+                "Image", feature_name
             ), ("Feature %s should not be present" % feature_name)
         else:
             assert m.has_current_measurements(
-                cellprofiler_core.measurement.IMAGE, feature_name
+                "Image", feature_name
             ), ("Missing feature %s" % feature_name)
 
             m_value = m.get_current_measurement(
-                cellprofiler_core.measurement.IMAGE, feature_name
+                "Image", feature_name
             )
             assert round(abs(m_value - value), 2) == 0, (
                 "Measured value, %f, for feature %s was not %f"
@@ -216,7 +220,7 @@ def test_local_focus_score():
     q.run(workspace)
     m = workspace.measurements
     value = m.get_current_measurement(
-        cellprofiler_core.measurement.IMAGE, "ImageQuality_LocalFocusScore_my_image_500"
+        "Image", "ImageQuality_LocalFocusScore_my_image_500"
     )
     assert round(abs(value - expected_value), 3) == 0
 
@@ -239,7 +243,7 @@ def test_focus_score_with_mask():
     q.run(workspace)
     m = workspace.measurements
     value = m.get_current_measurement(
-        cellprofiler_core.measurement.IMAGE, "ImageQuality_FocusScore_my_image"
+        "Image", "ImageQuality_FocusScore_my_image"
     )
     assert round(abs(value - expected_value), 3) == 0
 
@@ -263,7 +267,7 @@ def test_local_focus_score_with_mask():
     q.run(workspace)
     m = workspace.measurements
     value = m.get_current_measurement(
-        cellprofiler_core.measurement.IMAGE, "ImageQuality_LocalFocusScore_my_image_500"
+        "Image", "ImageQuality_LocalFocusScore_my_image_500"
     )
     assert round(abs(value - expected_value), 3) == 0
 
@@ -286,18 +290,20 @@ def test_saturation():
         "ImageQuality_LocalFocusScore_my_image_20",
     ):
         assert not m.has_current_measurements(
-            cellprofiler_core.measurement.IMAGE, feature_name
+            "Image", feature_name
         ), ("%s should not be present" % feature_name)
     for (feature_name, expected_value) in (
         ("ImageQuality_PercentMaximal_my_image", 25),
         ("ImageQuality_PercentMinimal_my_image", 75),
     ):
-        assert m.has_current_measurements(cellprofiler_core.measurement.IMAGE, feature_name)
+        assert m.has_current_measurements(
+            "Image", feature_name
+        )
         assert (
             round(
                 abs(
                     m.get_current_measurement(
-                        cellprofiler_core.measurement.IMAGE, feature_name
+                        "Image", feature_name
                     )
                     - expected_value
                 ),
@@ -326,7 +332,7 @@ def test_maximal():
             abs(
                 expected_value
                 - m.get_current_measurement(
-                    cellprofiler_core.measurement.IMAGE,
+                    "Image",
                     "ImageQuality_PercentMaximal_my_image",
                 )
             ),
@@ -359,25 +365,29 @@ def test_saturation_mask():
         "ImageQuality_LocalFocusScore_my_image_20",
     ):
         assert not m.has_current_measurements(
-            cellprofiler_core.measurement.IMAGE, feature_name
+            "Image", feature_name
         ), ("%s should not be present" % feature_name)
     for (feature_name, expected_value) in (
         ("ImageQuality_PercentMaximal_my_image", 100.0 / 3),
         ("ImageQuality_PercentMinimal_my_image", 200.0 / 3),
     ):
-        assert m.has_current_measurements(cellprofiler_core.measurement.IMAGE, feature_name)
+        assert m.has_current_measurements(
+            "Image", feature_name
+        )
         print(
             (
                 feature_name,
                 expected_value,
-                m.get_current_measurement(cellprofiler_core.measurement.IMAGE, feature_name),
+                m.get_current_measurement(
+                    "Image", feature_name
+                ),
             )
         )
         assert (
             round(
                 abs(
                     m.get_current_measurement(
-                        cellprofiler_core.measurement.IMAGE, feature_name
+                        "Image", feature_name
                     )
                     - expected_value
                 ),
@@ -407,7 +417,7 @@ def test_maximal_mask():
             abs(
                 expected_value
                 - m.get_current_measurement(
-                    cellprofiler_core.measurement.IMAGE,
+                    "Image",
                     "ImageQuality_PercentMaximal_my_image",
                 )
             ),
@@ -453,10 +463,12 @@ def test_threshold():
         t = q.image_groups[idx].threshold_groups[0]
         t.threshold_method.value = tm
         t.object_fraction.value = object_fraction
-        t.two_class_otsu.value = cellprofiler_core.modules.identify.O_THREE_CLASS
-        t.assign_middle_to_foreground.value = cellprofiler_core.modules.identify.O_FOREGROUND
+        t.two_class_otsu.value = O_THREE_CLASS
+        t.assign_middle_to_foreground.value = (
+            O_FOREGROUND
+        )
         t.use_weighted_variance.value = (
-            cellprofiler_core.modules.identify.O_WEIGHTED_VARIANCE
+            O_WEIGHTED_VARIANCE
         )
     q.run(workspace)
     m = workspace.measurements
@@ -467,7 +479,7 @@ def test_threshold():
         "ImageQuality_PercentMaximal_my_image",
     ):
         assert not m.has_current_measurements(
-            cellprofiler_core.measurement.IMAGE, feature_name
+            "Image", feature_name
         )
     for tm, idx in zip(
         centrosome.threshold.TM_GLOBAL_METHODS,
@@ -479,7 +491,9 @@ def test_threshold():
             feature_name = "ImageQuality_ThresholdMoG_my_image_20"
         else:
             feature_name = "ImageQuality_Threshold%s_my_image" % tm.split(" ")[0]
-        assert m.has_current_measurements(cellprofiler_core.measurement.IMAGE, feature_name)
+        assert m.has_current_measurements(
+            "Image", feature_name
+        )
     features_and_columns_match(m, q)
 
 
@@ -493,13 +507,13 @@ def test_experiment_threshold():
         module, cellprofiler.modules.measureimagequality.MeasureImageQuality
     )
     m = workspace.measurements
-    assert isinstance(m, cellprofiler_core.measurement.Measurements)
-    image_name = module.image_groups[0].image_names.get_selections()[0]
+    assert isinstance(m,cellprofiler_core.measurement.Measurements)
+    image_name = module.image_groups[0].image_names.value[0]
     feature = (
         module.image_groups[0].threshold_groups[0].threshold_feature_name(image_name)
     )
     data = numpy.random.uniform(size=100)
-    m.add_all_measurements(cellprofiler_core.measurement.IMAGE, feature, data.tolist())
+    m.add_all_measurements("Image", feature, data.tolist())
     module.post_run(workspace)
 
     # Check threshold algorithms
@@ -535,8 +549,8 @@ def test_experiment_threshold_cycle_skipping():
         module, cellprofiler.modules.measureimagequality.MeasureImageQuality
     )
     m = workspace.measurements
-    assert isinstance(m, cellprofiler_core.measurement.Measurements)
-    image_name = module.image_groups[0].image_names.get_selections()[0]
+    assert isinstance(m,cellprofiler_core.measurement.Measurements)
+    image_name = module.image_groups[0].image_names.value[0]
     feature = (
         module.image_groups[0].threshold_groups[0].threshold_feature_name(image_name)
     )
@@ -551,16 +565,16 @@ def test_experiment_threshold_cycle_skipping():
     for e in eraser:
         dlist[e] = None
 
-    m.add_all_measurements(cellprofiler_core.measurement.IMAGE, feature, dlist)
+    m.add_all_measurements("Image", feature, dlist)
     module.post_run(workspace)
     features_and_columns_match(
-        m, module, cellprofiler_core.measurement.EXPERIMENT, pipeline=workspace.pipeline
+        m, module, EXPERIMENT, pipeline=workspace.pipeline
     )
 
     # Check threshold algorithms
     threshold_group = module.image_groups[0].threshold_groups[0]
     threshold_algorithm = threshold_group.threshold_algorithm
-    image_name = module.image_groups[0].image_names.value
+    image_name = module.image_groups[0].image_names.value_text
     f_mean, f_median, f_std = [
         threshold_group.threshold_feature_name(image_name, agg)
         for agg in (
@@ -606,7 +620,9 @@ def test_use_all_thresholding_methods():
         "ImageQuality_ThresholdKapur_my_image",
         "ImageQuality_ThresholdRidlerCalvard_my_image",
     ]:
-        assert m.has_current_measurements(cellprofiler_core.measurement.IMAGE, feature_name)
+        assert m.has_current_measurements(
+            "Image", feature_name
+        )
     features_and_columns_match(m, q)
 
 
@@ -615,7 +631,8 @@ def check_error(caller, event):
 
 
 def test_load_v3():
-    with open("./tests/resources/modules/measureimagequality/v3.pipeline", "r") as fd:
+    file = tests.modules.get_test_resources_directory("measureimagequality/v3.pipeline")
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -634,35 +651,43 @@ def test_load_v3():
 
     group = module.image_groups[0]
     thr = group.threshold_groups[0]
-    assert group.image_names == "Alpha"
+    assert group.image_names.value_text == "Alpha"
     assert group.check_blur
     assert group.scale_groups[0].scale == 25
     assert group.check_saturation
     assert group.calculate_threshold
     assert thr.threshold_method == centrosome.threshold.TM_OTSU
     assert round(abs(thr.object_fraction.value - 0.2), 7) == 0
-    assert thr.two_class_otsu == cellprofiler_core.modules.identify.O_THREE_CLASS
+    assert thr.two_class_otsu == O_THREE_CLASS
     assert (
-        thr.use_weighted_variance == cellprofiler_core.modules.identify.O_WEIGHTED_VARIANCE
+        thr.use_weighted_variance
+        == O_WEIGHTED_VARIANCE
     )
-    assert thr.assign_middle_to_foreground == cellprofiler_core.modules.identify.O_FOREGROUND
+    assert (
+        thr.assign_middle_to_foreground
+        == O_FOREGROUND
+    )
 
     group = module.image_groups[1]
     thr = group.threshold_groups[0]
-    assert group.image_names == "Beta"
+    assert group.image_names.value_text == "Beta"
     assert not group.check_blur
     assert group.scale_groups[0].scale == 15
     assert not group.check_saturation
     assert not group.calculate_threshold
     assert thr.threshold_method == centrosome.threshold.TM_MOG
     assert round(abs(thr.object_fraction.value - 0.3), 7) == 0
-    assert thr.two_class_otsu == cellprofiler_core.modules.identify.O_TWO_CLASS
-    assert thr.use_weighted_variance == cellprofiler_core.modules.identify.O_ENTROPY
-    assert thr.assign_middle_to_foreground == cellprofiler_core.modules.identify.O_BACKGROUND
+    assert thr.two_class_otsu == O_TWO_CLASS
+    assert thr.use_weighted_variance == O_ENTROPY
+    assert (
+        thr.assign_middle_to_foreground
+        == O_BACKGROUND
+    )
 
 
 def test_load_v4():
-    with open("./tests/resources/modules/measureimagequality/v4.pipeline", "r") as fd:
+    file = tests.modules.get_test_resources_directory("measureimagequality/v4.pipeline")
+    with open(file, "r") as fd:
         data = fd.read()
 
     pipeline = cellprofiler_core.pipeline.Pipeline()
@@ -694,49 +719,57 @@ def test_load_v4():
     assert len(module.image_groups) == 1
     group = module.image_groups[0]
     assert module.images_choice == cellprofiler.modules.measureimagequality.O_SELECT
-    assert group.image_names == "Alpha"
+    assert group.image_names.value_text == "Alpha"
 
     module = pipeline.modules()[2]
     assert len(module.image_groups) == 1
     group = module.image_groups[0]
     assert module.images_choice == cellprofiler.modules.measureimagequality.O_SELECT
-    assert group.image_names == "Delta,Beta"
+    assert "Delta" in group.image_names.value
+    assert "Beta" in group.image_names.value
+    assert len(group.image_names.value) == 2
 
     module = pipeline.modules()[3]
     assert len(module.image_groups) == 2
     group = module.image_groups[0]
     assert module.images_choice == cellprofiler.modules.measureimagequality.O_SELECT
-    assert group.image_names == "Delta"
+    assert group.image_names.value_text == "Delta"
     assert group.check_intensity
     assert not group.use_all_threshold_methods
     thr = group.threshold_groups[0]
     assert thr.threshold_method == centrosome.threshold.TM_OTSU
     assert (
-        thr.use_weighted_variance == cellprofiler_core.modules.identify.O_WEIGHTED_VARIANCE
+        thr.use_weighted_variance
+        == O_WEIGHTED_VARIANCE
     )
-    assert thr.two_class_otsu == cellprofiler_core.modules.identify.O_TWO_CLASS
+    assert thr.two_class_otsu == O_TWO_CLASS
     group = module.image_groups[1]
-    assert group.image_names == "Epsilon"
+    assert group.image_names.value_text == "Epsilon"
 
     module = pipeline.modules()[4]
     assert len(module.image_groups) == 1
     group = module.image_groups[0]
     assert module.images_choice == cellprofiler.modules.measureimagequality.O_SELECT
-    assert group.image_names == "Zeta"
+    assert group.image_names.value_text == "Zeta"
     assert not group.use_all_threshold_methods
     thr = group.threshold_groups[0]
     assert thr.threshold_method == centrosome.threshold.TM_OTSU
     assert (
-        thr.use_weighted_variance == cellprofiler_core.modules.identify.O_WEIGHTED_VARIANCE
+        thr.use_weighted_variance
+        == O_WEIGHTED_VARIANCE
     )
-    assert thr.two_class_otsu == cellprofiler_core.modules.identify.O_TWO_CLASS
+    assert thr.two_class_otsu == O_TWO_CLASS
     thr = group.threshold_groups[1]
     assert thr.threshold_method == centrosome.threshold.TM_OTSU
     assert (
-        thr.use_weighted_variance == cellprofiler_core.modules.identify.O_WEIGHTED_VARIANCE
+        thr.use_weighted_variance
+        == O_WEIGHTED_VARIANCE
     )
-    assert thr.two_class_otsu == cellprofiler_core.modules.identify.O_THREE_CLASS
-    assert thr.assign_middle_to_foreground == cellprofiler_core.modules.identify.O_FOREGROUND
+    assert thr.two_class_otsu == O_THREE_CLASS
+    assert (
+        thr.assign_middle_to_foreground
+        == O_FOREGROUND
+    )
 
 
 def test_intensity_image():
@@ -753,11 +786,11 @@ def test_intensity_image():
     q.run(workspace)
     m = workspace.measurements
     assert m.get_current_measurement(
-        cellprofiler_core.measurement.IMAGE, "ImageQuality_TotalIntensity_my_image"
+        "Image", "ImageQuality_TotalIntensity_my_image"
     ) == numpy.sum(pixels)
     assert (
         m.get_current_measurement(
-            cellprofiler_core.measurement.IMAGE, "ImageQuality_MeanIntensity_my_image"
+            "Image", "ImageQuality_MeanIntensity_my_image"
         )
         == numpy.sum(pixels) / 100.0
     )
@@ -780,7 +813,7 @@ def test_check_image_groups():
 
     q = workspace.module
     # Set my_image1 and my_image2 settings: Saturation only
-    q.image_groups[0].image_names.value = "my_image1,my_image2"
+    q.image_groups[0].image_names.value = "my_image1, my_image2"
     q.image_groups[0].include_image_scalings.value = False
     q.image_groups[0].check_blur.value = False
     q.image_groups[0].check_saturation.value = True
@@ -789,7 +822,7 @@ def test_check_image_groups():
 
     # Set my_image3 and my_image4's settings: Blur only
     q.add_image_group()
-    q.image_groups[1].image_names.value = "my_image3,my_image4"
+    q.image_groups[1].image_names.value = "my_image3, my_image4"
     q.image_groups[1].include_image_scalings.value = False
     q.image_groups[1].check_blur.value = True
     q.image_groups[1].check_saturation.value = False
@@ -805,7 +838,7 @@ def test_check_image_groups():
             ("ImageQuality_PercentMinimal_my_image%s" % i),
         ):
             assert m.has_current_measurements(
-                cellprofiler_core.measurement.IMAGE, feature_name
+                "Image", feature_name
             ), ("Missing feature %s" % feature_name)
 
         for feature_name in (
@@ -814,7 +847,7 @@ def test_check_image_groups():
             ("ImageQuality_PowerLogLogSlope_my_image%s" % i),
         ):
             assert not m.has_current_measurements(
-                cellprofiler_core.measurement.IMAGE, feature_name
+                "Image", feature_name
             ), ("Erroneously present feature %s" % feature_name)
     for i in [3, 4]:
         for feature_name in (
@@ -823,14 +856,14 @@ def test_check_image_groups():
             ("ImageQuality_PowerLogLogSlope_my_image%s" % i),
         ):
             assert m.has_current_measurements(
-                cellprofiler_core.measurement.IMAGE, feature_name
+                "Image", feature_name
             ), ("Missing feature %s" % feature_name)
         for feature_name in (
             ("ImageQuality_PercentMaximal_my_image%s" % i),
             ("ImageQuality_PercentMinimal_my_image%s" % i),
         ):
             assert not m.has_current_measurements(
-                cellprofiler_core.measurement.IMAGE, feature_name
+                "Image", feature_name
             ), ("Erroneously present feature %s" % feature_name)
 
 
@@ -843,13 +876,17 @@ def test_images_to_process():
     pipeline = cellprofiler_core.pipeline.Pipeline()
     module1 = cellprofiler_core.modules.namesandtypes.NamesAndTypes()
     module1.set_module_num(1)
-    module1.assignment_method.value = cellprofiler_core.modules.namesandtypes.ASSIGN_RULES
+    module1.assignment_method.value = (
+        cellprofiler_core.modules.namesandtypes.ASSIGN_RULES
+    )
     module1.add_assignment()
     module1.add_assignment()
     module1.assignments[0].image_name.value = expected_names[0]
     module1.assignments[
         0
-    ].load_as_choice.value = cellprofiler_core.modules.namesandtypes.LOAD_AS_GRAYSCALE_IMAGE
+    ].load_as_choice.value = (
+        cellprofiler_core.modules.namesandtypes.LOAD_AS_GRAYSCALE_IMAGE
+    )
     #
     # TO_DO: issue #652
     #    This test should fail at some later date when we can detect
@@ -930,11 +967,11 @@ def test_volumetric_measurements():
 
     for feature, value in list(expected.items()):
         assert workspace.measurements.has_current_measurements(
-            cellprofiler_core.measurement.IMAGE, feature
+            "Image", feature
         )
 
         actual = workspace.measurements.get_current_measurement(
-            cellprofiler_core.measurement.IMAGE, feature
+            "Image", feature
         )
 
         numpy.testing.assert_almost_equal(actual, value, decimal=5)
